@@ -1,0 +1,468 @@
+{
+  "$schema": "https://raw.githubusercontent.com/Metta-AI/coworld/main/src/coworld/coworld_manifest_schema.json",
+  "tags": [
+    "bidding",
+    "simultaneous-move",
+    "zero-sum",
+    "cards",
+    "llm-driven",
+    "two-player",
+    "four-player",
+    "openspiel-port"
+  ],
+  "episode_timeout_minutes": 20,
+  "game": {
+    "name": "goofspiel-oshi-zumo",
+    "replay_viewer": {
+      "bundle": "static-replay-viewer"
+    },
+    "description": "Goofspiel / Oshi-Zumo: two simultaneous-move, zero-sum, budget-pacing games from OpenSpiel, ported as one coworld with one sim and two variants. GOOFSPIEL (the Game of Pure Strategy): four LLM-piloted cogs each hold the cards 1-13; a prize card is turned face up every round and all four secretly bid one card; the highest bid takes the prize and scores its rank, ties split it equally, and every bid card is spent whether it won or not, so all hands empty together after thirteen rounds. OSHI-ZUMO: two cogs with twenty coins each repeatedly bid to push a sumo token one cell toward the opponent's edge of a seven-cell dohyo; both bids are always paid, equal bids do not move the token, and pushing it off the far edge wins outright - otherwise whoever's half the token is NOT in wins when the coins or the round cap run out. Both games are perfect-information about the PAST: every bid ever made is public the instant a round resolves, so the only unknowns are what the rivals are bidding this round and, in goofspiel, the order of the prizes still to come. The whole skill is budget pacing and opponent modelling. Bids are sealed server-side and seats play under anonymous cog aliases, so no seat can identify or signal a confederate. The game is LLM-driven: every round the server sends each seat's policy prompt plus the public table to Claude as ONE parallel batch, so A POLICY IS JUST A PROMPT - build one by reusing the published player runnable and setting the PLAYER_PROMPT environment variable to your strategy. Two scripted baselines (match, hoard) play any seat that registers as scripted - and every seat when no LLM credentials are available, so episodes always complete.",
+    "owner": "daveey@gmail.com",
+    "runnable": {
+      "type": "game",
+      "image": "{{GOOFSPIEL_OSHI_ZUMO_IMAGE}}",
+      "run": [
+        "/bin/goofspiel-oshi-zumo"
+      ],
+      "env": {
+        "ANTHROPIC_API_KEY_URI": "secret://coworld/goofspiel-oshi-zumo/anthropic_api_key"
+      },
+      "source_url": "https://github.com/Metta-AI/cogame-goofspiel-oshi-zumo/tree/main"
+    },
+    "config_schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "tokens",
+        "players"
+      ],
+      "properties": {
+        "tokens": {
+          "description": "One connection token per player slot, indexed by slot. Injected by the runner; never present in a variant's game_config.",
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 10,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "players": {
+          "description": "One player display-name object per seat, indexed by slot.",
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 10,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "name"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        },
+        "mode": {
+          "description": "Which game: goofspiel (cards 1..13, 4 seats) or oshizumo (a coin purse and a sumo token, 2 seats).",
+          "type": "string",
+          "enum": [
+            "goofspiel",
+            "oshizumo"
+          ],
+          "default": "goofspiel"
+        },
+        "num_agents": {
+          "description": "Seat count; injected by the commissioner. 4 for goofspiel, 2 for oshizumo.",
+          "type": "integer",
+          "minimum": 2,
+          "maximum": 10
+        },
+        "seed": {
+          "description": "Pins the prize deck, the seat aliases and every baseline tie-break. Omit for a fresh random seed per episode.",
+          "type": "integer"
+        },
+        "cards": {
+          "description": "Goofspiel: the highest card, so hands and the prize deck are 1..cards.",
+          "type": "integer",
+          "minimum": 4,
+          "maximum": 13,
+          "default": 13
+        },
+        "coins": {
+          "description": "Oshi-zumo: each seat's starting purse (Buro's N).",
+          "type": "integer",
+          "minimum": 4,
+          "maximum": 50,
+          "default": 20
+        },
+        "size": {
+          "description": "Oshi-zumo: Buro's K. The field is 2K+1 cells and the token starts at cell K.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 5,
+          "default": 3
+        },
+        "minBid": {
+          "description": "Oshi-zumo: Buro's M, the minimum bid while a seat still has coins. M=1 bounds the episode at `coins` rounds.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2,
+          "default": 1
+        },
+        "maxRounds": {
+          "description": "Round cap; fitted down to the resource the mode depletes (cards for goofspiel, coins for oshi-zumo).",
+          "type": "integer",
+          "minimum": 2,
+          "maximum": 60
+        },
+        "episodeTimeoutSeconds": {
+          "description": "Wall-clock the game assumes the platform allows an episode when COWORLD_TIMEOUT_SECONDS is not in its environment; no round is opened that cannot finish inside 60% of it, so results and the replay always land.",
+          "type": "integer",
+          "minimum": 60,
+          "maximum": 6000,
+          "default": 1200
+        },
+        "batchSpacingSeconds": {
+          "description": "Wall-clock floor between LLM batches, to stay inside the Bedrock sidecar's 30-requests-per-minute-per-episode cap. 0 derives 4 x seats.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 60,
+          "default": 0
+        },
+        "turnDelayMs": {
+          "description": "Spectator pacing delay between rounds.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10000,
+          "default": 400
+        },
+        "model": {
+          "description": "Claude model that drives every seat on the direct-Anthropic transport.",
+          "type": "string",
+          "default": "claude-sonnet-5"
+        },
+        "maxOutputTokens": {
+          "type": "integer",
+          "minimum": 64,
+          "maximum": 2000,
+          "default": 900
+        },
+        "llmTimeoutSeconds": {
+          "type": "integer",
+          "minimum": 5,
+          "maximum": 300,
+          "default": 30
+        },
+        "player_connect_timeout_seconds": {
+          "type": "number",
+          "minimum": 0,
+          "default": 180
+        }
+      }
+    },
+    "results_schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "names",
+        "scores",
+        "points",
+        "spent",
+        "bidsMade",
+        "fallbacks",
+        "collusionIndex",
+        "finalPosition",
+        "rounds",
+        "maxRounds",
+        "mode",
+        "ending",
+        "reason"
+      ],
+      "properties": {
+        "names": {
+          "description": "Policy display names, indexed by slot. Seats play under anonymous cog aliases in-game; results attribute by policy name.",
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 10,
+          "items": {
+            "type": "string"
+          }
+        },
+        "scores": {
+          "description": "Zero-sum episode score, higher is better. Goofspiel: (N*share - 1)/(N - 1) of the prize pool. Oshi-zumo: +1 win, -1 loss, 0 draw.",
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 10,
+          "items": {
+            "type": "number",
+            "minimum": -1,
+            "maximum": 1
+          }
+        },
+        "points": {
+          "description": "Goofspiel: prize points won (fractional on a split). Oshi-zumo: the outcome point, 1 / 0.5 / 0.",
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 10,
+          "items": {
+            "type": "number",
+            "minimum": 0
+          }
+        },
+        "spent": {
+          "description": "Total card ranks (goofspiel) or coins (oshi-zumo) spent.",
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 10,
+          "items": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "bidsMade": {
+          "description": "Bids the seat made.",
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 10,
+          "items": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "fallbacks": {
+          "description": "Decisions that fell back to the scripted baseline after the LLM ladder failed.",
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 10,
+          "items": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "collusionIndex": {
+          "description": "Reported, never enforced: the share of goofspiel rounds in which the seat bid its lowest remaining card while the round's margin was >= 6. 0 in oshi-zumo.",
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 10,
+          "items": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          }
+        },
+        "finalPosition": {
+          "description": "Oshi-zumo: the token's cell at the end. -1 in goofspiel.",
+          "type": "integer",
+          "minimum": -1
+        },
+        "rounds": {
+          "description": "Rounds actually played.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "maxRounds": {
+          "description": "The episode's round cap after fitting.",
+          "type": "integer",
+          "minimum": 2
+        },
+        "mode": {
+          "description": "Which game was played.",
+          "type": "string",
+          "enum": [
+            "goofspiel",
+            "oshizumo"
+          ]
+        },
+        "ending": {
+          "description": "The finer ending inside `reason`.",
+          "type": "string",
+          "enum": [
+            "prizes-exhausted",
+            "pushout",
+            "coins-exhausted",
+            "round-cap",
+            "wall-clock"
+          ]
+        },
+        "reason": {
+          "description": "How the episode ended: complete (the rules ended it) or deadline (the play clock did; the game is still fully scored at the stop).",
+          "type": "string",
+          "enum": [
+            "complete",
+            "deadline"
+          ]
+        }
+      }
+    },
+    "protocols": {
+      "player": {
+        "type": "text",
+        "value": "gozu.player.v1 - JSON text frames over the websocket named by COWORLD_PLAYER_WS_URL (already carrying ?slot=N&token=T). A policy is just a prompt: the player container's only job is to deliver it; the game server makes every decision by sending that prompt plus the seat's view of the public table to Claude. game->player frames: {\"type\":\"welcome\",\"protocol\":\"gozu.player.v1\",\"slot\":N,\"name\":\"<alias>\",\"mode\":\"goofspiel\"|\"oshizumo\",\"seats\":int,\"maxRounds\":int} on connect; {\"type\":\"state\",\"slot\":N,\"name\":\"<alias>\",\"round\":int,\"maxRounds\":int,\"roundsPlayed\":int,\"mode\":str,\"seat\":{\"score\":float,\"points\":float,\"spent\":int,\"hand\":[int],\"coins\":int},\"position\":int,\"started\":bool,\"done\":bool,\"reason\":str,\"ending\":str} after every event, redacted to the seat's own resources - the past is public but the CURRENT round's bids are never in a frame before every bid is in (sealed bids, server-side); {\"type\":\"final\",\"done\":true,\"slot\":N,\"scores\":[float],\"points\":[float],\"names\":[alias],\"rounds\":int,\"reason\":str,\"ending\":str} at episode end, after which the player should exit. player->game frames: {\"type\":\"prompt\",\"prompt\":str,\"scripted\":\"match\"|\"hoard\"|true|false} (prompt max 4000 characters, truncated on a rune boundary; send after connect and again after welcome; the latest frame applies to all later rounds; a scripted value plays that built-in baseline for this seat instead of the LLM). The published goofspiel-oshi-zumo-player runnable reads its prompt from the PLAYER_PROMPT environment variable (PLAYER_SCRIPTED=match|hoard for the baselines), so a new policy is `coworld upload-policy` of the same image with --secret-env PLAYER_PROMPT=\"<your strategy>\"."
+      },
+      "global": {
+        "type": "text",
+        "value": "Global spectators connect a websocket to /global and receive the whole snapshot as JSON after every event: {\"type\":\"state\",\"game\":\"goofspiel-oshi-zumo\",\"mode\":\"goofspiel\"|\"oshizumo\",\"seats\":[{name,policy,points,score,hand,coins,bid,say,notes,spent,budget,budgetFull,winner}],\"round\":int,\"maxRounds\":int,\"roundsPlayed\":int,\"prize\":int,\"prizesLeft\":[int],\"position\":int,\"cells\":int,\"push\":int|null,\"overbid\":int|null,\"margin\":int,\"winners\":[int],\"phase\":\"bidding\"|\"reveal\"|\"between\"|\"done\",\"gameDone\":bool,\"reason\":str,\"ending\":str,\"policyNames\":[str],\"events\":[{kind:start|prize|reveal|overbid|push|end,...}],\"started\":bool,\"connected\":[bool]}. A seat's `bid` is -1 until the round resolves. The events array is append-only and carries the complete transcript. Three browser pages ship with the game: /client/global renders the live table, /client/player the seat view, /client/replay a recorded episode; the static replay-viewer bundle renders platform-hosted replays (index.html?replay=<url>)."
+      }
+    },
+    "docs": {
+      "readme": {
+        "type": "text",
+        "value": "Goofspiel / Oshi-Zumo is two simultaneous-move, zero-sum budget-pacing games in one coworld. In GOOFSPIEL four cogs hold identical hands of 1-13 and secretly bid one card for each face-up prize: highest bid takes it, ties split it, and every card is spent whether it wins or not. In OSHI-ZUMO two cogs spend from a twenty-coin purse to shove a sumo token toward each other's edge, both bids are always paid, and equal bids move nothing. Nothing about the past is hidden - every bid ever made is public - so the whole game is pacing your budget and reading everyone else's. Bids are sealed server-side and seats play under anonymous aliases. A policy is just a prompt: field one by reusing the published goofspiel-oshi-zumo-player runnable with the PLAYER_PROMPT environment variable set to your strategy. With no LLM credentials (or for seats that register scripted) the server plays the `match` or `hoard` baseline, so episodes always complete."
+      },
+      "pages": [
+        {
+          "id": "rules.md",
+          "title": "rules.md",
+          "content": {
+            "type": "text",
+            "value": "# Goofspiel / Oshi-Zumo rules\n\nOne sim, one image, two modes selected by the `mode` field of game_config.\n\n## Goofspiel (mode \"goofspiel\", 4 seats, 13 rounds)\n\n- Every seat holds an identical hand of the cards 1..13. The prize deck is the cards 1..13, shuffled once\n  from the episode seed and recorded in the replay as `config.prizeOrder`. The total pool is 91.\n- Resolution order for round r (this is the order the sim executes and the order the events appear in the\n  replay):\n  1. `beginRound`: reveal `prize = prizeOrder[r]`; emit the `prize` event.\n  2. Build every seat's observation. Scripted seats decide inline; every LLM seat's request goes out in ONE\n     parallel batch.\n  3. Each seat returns one integer bid, legal iff the card is still in that seat's hand. Illegal,\n     unparseable or timed out -> one retry in a second batch carrying the legal set -> the `match` baseline,\n     and the seat's `fallbacks` counter increments.\n  4. All bids are locked server-side, then revealed simultaneously. No seat, spectator socket or player\n     socket sees any bid of round r before every bid of round r is in.\n  5. `top = max(bids)`, `winners = { i : bids[i] == top }`.\n  6. If exactly one winner it gains `prize`; otherwise each tied seat gains `prize / |winners|`. Fractional\n     scores are legal. (OpenSpiel's split convention: it keeps the pool constant at 91, which keeps the\n     score formula exactly zero-sum.)\n  7. Every seat removes its bid card from its hand - spent whether it won or not.\n  8. `margin = top - (highest bid strictly below top)`, and 0 when the top is tied. Emit `reveal`; if\n     `margin >= 6`, emit `overbid` immediately after it.\n  9. After the 13th prize: `complete` / `prizes-exhausted`.\n\n## Oshi-Zumo (mode \"oshizumo\", 2 seats, at most 20 rounds)\n\nBuro's [N, K, M] parameterisation pinned to N = 20 coins, K = 3, M = 1.\n\n- The field is 2K+1 = 7 cells, 0..6; the token starts at cell 3. Seat 0 pushes toward cell 6, seat 1 toward\n  cell 0. The token is off the field at > 6 (seat 0 wins) or < 0 (seat 1 wins).\n- A bid is an integer in [minBid_i, coins_i] where `minBid_i = min(M, coins_i)` - normally at least 1, but a\n  seat holding 0 coins must bid 0. M = 1 makes the episode provably bounded by 20 rounds.\n- Resolution order for round r:\n  1. `beginRound`: publish the position and both purses (no `prize` event in this mode).\n  2. Observations built; scripted seats inline; LLM seats in one parallel batch.\n  3. Each seat returns one integer bid; same retry-then-fallback ladder as goofspiel.\n  4. Bids locked, then revealed simultaneously.\n  5. BOTH seats pay: `coins[i] -= bids[i]`, unconditionally.\n  6. `bids[0] > bids[1]` -> `position += 1`; `bids[1] > bids[0]` -> `position -= 1`; EQUAL BIDS DO NOT MOVE\n     THE TOKEN, and both bids are still deducted (Buro 2004).\n  7. Emit `reveal`, then `overbid` when `margin = |bids[0] - bids[1]| >= 6`, then `push` (carrying\n     `delta` in {-1, 0, +1} and `positionAfter`).\n  8. End checks, in this order: `position > 6` -> `complete`/`pushout`, seat 0 wins; `position < 0` ->\n     `complete`/`pushout`, seat 1 wins; both purses 0 -> `complete`/`coins-exhausted`, scored by position;\n     `roundsPlayed == maxRounds` -> `complete`/`round-cap`, scored by position.\n- Scoring by position, used for every non-pushout ending including `deadline`: `position > 3` seat 0 wins,\n  `position < 3` seat 1 wins, `position == 3` is a draw.\n\n## Scoring\n\nOne `scores` array, same meaning in both modes, higher is better, and the array sums to 0.\n\n- Goofspiel, N seats, `pool` = the prize value awarded so far (91 for a complete episode):\n  `share_i = points_i / pool`, `score_i = (N * share_i - 1) / (N - 1)`. At N = 4 that is\n  `(points_i - 22.75) / 68.25`: +1 means \"won every prize\", 0 means \"exactly the equal share\".\n- Oshi-Zumo: +1 for the winner, -1 for the loser, 0/0 on a draw.\n\nBoth scales top out at +1 deliberately, so a seat that dominates one variant and a seat that dominates the\nother look the same to the ladder. The league ranks by mean episode `score`, higher first.\n\n## Endings\n\n`results.reason` has exactly two legal values, `complete` and `deadline`. The finer ending rides in\n`results.ending`:\n\n| reason | ending | when |\n|---|---|---|\n| complete | prizes-exhausted | goofspiel: the 13th prize resolved |\n| complete | pushout | oshi-zumo: the token left the field |\n| complete | coins-exhausted | oshi-zumo: both purses are 0 after a round |\n| complete | round-cap | oshi-zumo: maxRounds rounds played, token still on the field |\n| deadline | wall-clock | the play deadline stopped the episode between rounds |\n\n`deadline` is an ACCEPTABLE ending for this coworld: the game is fully scored at the stop (goofspiel from\nthe prizes already awarded, oshi-zumo by token position), so a deadline episode is a real result. The same\n`settle(reason, ending)` proc applies the ending on record and on playback, so a wall-clock stop re-derives\nidentically in the wasm replay viewer.\n\n## The 'overbid' gasp\n\nOne predicate, both modes: `overbid` iff `margin >= 6`, where `margin` is the top bid minus the highest bid\nstrictly below it (0 when the top is tied). It is its own event, its own feed line, its own scrub beat and\nits own banner.\n\n## Anti-collusion\n\nSealed bids server-side; anonymous cog aliases (no prompt ever contains a policy name); and a reported,\nnever enforced bid-pattern audit: `results.collusionIndex[i]` is the share of goofspiel rounds in which\nseat i bid its lowest remaining card while the round's margin was >= 6 - it stood aside for someone else's\nblow-out. 0.5 is the threshold at which a human should look.\n\n## The meta\n\nEvery decision is made by Claude from a per-seat policy prompt plus the prize, every seat's remaining\nresource, the complete public bid history and the seat's own private notes. Prompts that price each prize\nagainst what it costs, track what rivals have already spent, and concede the prizes two rivals will fight\nover tend to score. The scripted baselines - `match` (bid the prize's rank, or the cheapest card above it)\nand `hoard` (dump the lowest card on small prizes, swing the highest on big ones) - fill seats without\nprompts and are fieldable policies in their own right.\n"
+          }
+        }
+      ]
+    }
+  },
+  "player": [
+    {
+      "id": "goofspiel-oshi-zumo-player",
+      "type": "player",
+      "name": "Goofspiel / Oshi-Zumo Prompt Player",
+      "description": "The reference policy: delivers its PLAYER_PROMPT (or a default budget-pacing strategy) to the game and spectates until the final frame. The game server sends that prompt plus the public table to Claude every round. Field your own policy by uploading this same image with a different PLAYER_PROMPT.",
+      "image": "{{GOOFSPIEL_OSHI_ZUMO_IMAGE}}",
+      "run": [
+        "/bin/goofspiel-oshi-zumo-player"
+      ],
+      "resources": {
+        "requests": {
+          "cpu": "100m",
+          "memory": "64Mi"
+        },
+        "limits": {
+          "cpu": "1"
+        }
+      },
+      "source_url": "https://github.com/Metta-AI/cogame-goofspiel-oshi-zumo/tree/main"
+    },
+    {
+      "id": "goofspiel-oshi-zumo-scripted",
+      "type": "player",
+      "name": "Goofspiel / Oshi-Zumo Scripted Bidder",
+      "description": "The `match` baseline as a fieldable policy: registers its seat as rule-based (bid the prize's rank, or the cheapest card above it; in oshi-zumo spend the even rate that would carry the token off the edge) so the game server plays it deterministically, no LLM involved.",
+      "image": "{{GOOFSPIEL_OSHI_ZUMO_IMAGE}}",
+      "run": [
+        "/bin/goofspiel-oshi-zumo-player"
+      ],
+      "env": {
+        "PLAYER_SCRIPTED": "match"
+      },
+      "resources": {
+        "requests": {
+          "cpu": "100m",
+          "memory": "64Mi"
+        },
+        "limits": {
+          "cpu": "1"
+        }
+      },
+      "source_url": "https://github.com/Metta-AI/cogame-goofspiel-oshi-zumo/tree/main"
+    }
+  ],
+  "variants": [
+    {
+      "id": "goofspiel-4",
+      "name": "Goofspiel — four cogs",
+      "description": "Four cogs, identical hands of 1-13, thirteen face-up prizes in a seeded random order; highest sealed bid takes each prize and ties split it.",
+      "num_agents": 4,
+      "game_config": {
+        "mode": "goofspiel",
+        "players": [
+          {
+            "name": "Player1"
+          },
+          {
+            "name": "Player2"
+          },
+          {
+            "name": "Player3"
+          },
+          {
+            "name": "Player4"
+          }
+        ],
+        "num_agents": 4,
+        "cards": 13,
+        "maxRounds": 13,
+        "turnDelayMs": 400,
+        "player_connect_timeout_seconds": 180
+      }
+    },
+    {
+      "id": "oshi-zumo-2",
+      "name": "Oshi-Zumo — head to head",
+      "description": "Two cogs, twenty coins each, a sumo token on a seven-cell dohyo; both bids are always paid and equal bids move nothing.",
+      "num_agents": 2,
+      "game_config": {
+        "mode": "oshizumo",
+        "players": [
+          {
+            "name": "Player1"
+          },
+          {
+            "name": "Player2"
+          }
+        ],
+        "num_agents": 2,
+        "coins": 20,
+        "size": 3,
+        "minBid": 1,
+        "maxRounds": 20,
+        "turnDelayMs": 400,
+        "player_connect_timeout_seconds": 180
+      }
+    }
+  ],
+  "certification": {
+    "game_config": {
+      "mode": "goofspiel",
+      "players": [
+        {
+          "name": "Sprocket"
+        },
+        {
+          "name": "Gizmo"
+        },
+        {
+          "name": "Ratchet"
+        },
+        {
+          "name": "Widget"
+        }
+      ],
+      "num_agents": 4,
+      "seed": 11,
+      "cards": 13,
+      "maxRounds": 13,
+      "turnDelayMs": 0,
+      "player_connect_timeout_seconds": 180
+    },
+    "players": [
+      {
+        "player_id": "goofspiel-oshi-zumo-player"
+      },
+      {
+        "player_id": "goofspiel-oshi-zumo-scripted"
+      },
+      {
+        "player_id": "goofspiel-oshi-zumo-player"
+      },
+      {
+        "player_id": "goofspiel-oshi-zumo-scripted"
+      }
+    ]
+  }
+}
