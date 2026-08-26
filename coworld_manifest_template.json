@@ -377,7 +377,6 @@
       "id": "goofspiel-4",
       "name": "Goofspiel — four cogs",
       "description": "Four cogs, identical hands of 1-13, thirteen face-up prizes in a seeded random order; highest sealed bid takes each prize and ties split it.",
-      "num_agents": 4,
       "game_config": {
         "mode": "goofspiel",
         "players": [
@@ -405,7 +404,6 @@
       "id": "oshi-zumo-2",
       "name": "Oshi-Zumo — head to head",
       "description": "Two cogs, twenty coins each, a sumo token on a seven-cell dohyo; both bids are always paid and equal bids move nothing.",
-      "num_agents": 2,
       "game_config": {
         "mode": "oshizumo",
         "players": [

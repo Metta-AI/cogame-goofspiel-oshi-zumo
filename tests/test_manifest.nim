@@ -23,11 +23,13 @@ suite "20 num_agents is everywhere and agrees with itself":
       check seats.kind == JInt
       check seats.getInt() > 0
       check config["players"].len == seats.getInt()
+    ## CoworldVariant is additionalProperties:false and permits only
+    ## id/name/description/game_config, so the seat count lives in
+    ## game_config and nowhere else - a variant-level copy fails the
+    ## upload manifest validation.
     for variant in manifest["variants"]:
       checkpoint(variant["id"].getStr())
-      check variant.hasKey("num_agents")
-      check variant["num_agents"].getInt() ==
-        variant["game_config"]["num_agents"].getInt()
+      check not variant.hasKey("num_agents")
       check variant.hasKey("description")
     ## The number tools/ci/docker_smoke.sh cross-checks SMOKE_SEATS against.
     check manifest["certification"]["game_config"]["num_agents"].getInt() == 4
