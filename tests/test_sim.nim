@@ -223,7 +223,12 @@ suite "6 oshi-zumo endings":
     check sim.score(1) == 0.0
 
 suite "7 oshi-zumo termination":
-  test "every seeded episode ends within 20 rounds, both baselines":
+  test "every seeded episode ends within 20 rounds, for any legal bidder":
+    ## The note's assertion 7 names the two baselines; the episodes THEY play
+    ## are asserted to terminate inside 20 rounds over the same 200 seeds by
+    ## tests/test_bot.nim (assertion 12), which calls the real `scriptedBid`.
+    ## This sweep is the wider claim -- termination is a property of the
+    ## rules, not of the bidder -- so it drives arbitrary legal bids instead.
     for seed in 0 ..< 200:
       for hoard in [false, true]:
         var sim = initSim(oshiConfig(seed = seed))
