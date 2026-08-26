@@ -1,0 +1,7 @@
+services:
+  goofspiel-oshi-zumo:
+    image: coworld-goofspiel-oshi-zumo:latest
+    platform: linux/amd64
+    build:
+      context: .
+      network: host
