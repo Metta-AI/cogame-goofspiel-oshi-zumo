@@ -234,7 +234,7 @@ proc batchSpacingSeconds(config: GameConfig): float =
   if config.batchSpacingSeconds > 0: config.batchSpacingSeconds.float
   else: 4.0 * config.players.len.float
 
-proc runGame(runtimeConfig: RuntimeConfig) {.gcsafe.} =
+proc playEpisode(runtimeConfig: RuntimeConfig) {.gcsafe.} =
   {.gcsafe.}:
     let config = state.config
     let gameStart = epochTime()
@@ -362,6 +362,21 @@ proc runGame(runtimeConfig: RuntimeConfig) {.gcsafe.} =
     if config.turnDelayMs > 0:
       sleep(config.turnDelayMs)
     finishEpisode(runtimeConfig)
+
+proc runGame(runtimeConfig: RuntimeConfig) {.gcsafe.} =
+  ## The game thread's whole frame. Without this guard a raise anywhere in
+  ## the episode — the reachable one is the artifact POST in `writeArtifact`,
+  ## which raises IOError on a non-2xx — kills the thread silently while the
+  ## mummy server keeps serving, so the container never reaches its `quit`
+  ## and hangs until the platform's own episode timeout kills it. Exit
+  ## non-zero instead: a failed episode that ends is a result, a container
+  ## that will not exit is not.
+  try:
+    playEpisode(runtimeConfig)
+  except CatchableError as error:
+    echo "gozu: game thread failed: ", error.msg
+    echo "gozu: shutting down rather than serving a dead episode"
+    quit(1)
 
 var gameThread: Thread[RuntimeConfig]
 
