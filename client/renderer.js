@@ -91,6 +91,18 @@
       < 420;
   }
 
+  // The chrome's single scale factor. C.relayout() sets `--hudscale` on
+  // :root from the window width and the CSS chrome scales with it; the say
+  // band is sized from MaxSayLen "measured in the render font at the current
+  // --hudscale" (design note), so the band reads the same variable instead
+  // of only the canvas-derived layout scale.
+  function hudScale() {
+    var raw = getComputedStyle(document.documentElement)
+      .getPropertyValue("--hudscale");
+    var value = parseFloat(raw);
+    return isFinite(value) && value > 0 ? value : 1;
+  }
+
   // ---- Layout ---------------------------------------------------------------
 
   // A FIXED board: a centre piece (the prize, or the dohyo track) over one
@@ -112,7 +124,8 @@
     return {
       margin: margin, cols: cols, panelW: panelW, panelH: panelH,
       panelTop: panelTop, topH: panelTop - margin, w: w, h: h,
-      scale: Math.max(0.55, Math.min(1, Math.min(w / 960, h / 620)))
+      scale: Math.max(0.55, Math.min(1, Math.min(w / 960, h / 620))),
+      hud: hudScale()
     };
   }
 
@@ -309,7 +322,7 @@
     var perLine = MAX_SAY / SAY_LINES;
     var contentW = Math.min(layout.panelW - 10, 380);
     var byWidth = (contentW - 12) / (perLine * 0.47);
-    return Math.max(7, Math.min(11 * layout.scale, byWidth));
+    return Math.max(7, Math.min(11 * layout.scale * layout.hud, byWidth));
   }
 
   function sayBandHeight(layout) {
