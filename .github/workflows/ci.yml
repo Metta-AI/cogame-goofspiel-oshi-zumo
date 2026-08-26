@@ -343,7 +343,10 @@ jobs:
         run: |
           set -euo pipefail
           cp tools/ci/renderer_fixture.html dist/static-replay-viewer/
-          python3 -m http.server 8731 --directory dist/static-replay-viewer \
+          # Not `python3 -m http.server`: the fixture parks the shell's own
+          # ?replay= fetch on /hang so the shell never posts a bridge signal
+          # of its own and the FIXTURE owns the verdict.
+          python3 tools/ci/fixture_server.py dist/static-replay-viewer 8731 \
             >/tmp/fixture-server.log 2>&1 &
           server_pid="$!"
           trap 'kill "${server_pid}" 2>/dev/null || true' EXIT
