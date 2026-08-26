@@ -47,15 +47,51 @@
     if (note) note.textContent = "FIXTURE FAILED: " + message;
   }
 
-  // A full-cap say line: multi-byte, mixed widths, exactly MAX_SAY runes.
-  function fullCapSay(seed) {
-    var source = "全力で押し出す🎴 burning a king on a four ぎりぎりの入札 " +
-      "🎴 hold the reserve " + seed + " ";
-    var runes = [];
+  // TWO shapes of worst case, both exactly MAX_SAY runes.
+  function fullCap(source, prefix) {
+    var runes = Array.from(prefix || "");
     while (runes.length < MAX_SAY) {
       runes = runes.concat(Array.from(source));
     }
     return runes.slice(0, MAX_SAY).join("");
+  }
+
+  // Each say opens with a unique full-width mark, so a fragment on the
+  // canvas can be attributed to the remark it came from even though the
+  // worst-case text repeats.
+  var MARKS = "①②③④⑤⑥";
+
+  function mark(seed) {
+    return MARKS.charAt(seed % MARKS.length);
+  }
+
+  // (a) a mixed CJK / latin / emoji sentence.
+  function fullCapSay(seed) {
+    return fullCap("全力で押し出す🎴 burning a king on a four " +
+      "ぎりぎりの入札 🎴 hold the reserve ", mark(seed) + " ");
+  }
+
+  // (b) a Japanese sentence with NO SPACES in it: one 80-rune "word" that
+  // word wrapping cannot break, every rune full width. This is the widest
+  // run the server's cap can deliver, and the case a band sized by
+  // eye-balled latin averages gets wrong.
+  function fullCapRun(seed) {
+    return fullCap("全力で押し出す番だ相手の札を読み切って" +
+      "一気に土俵際まで押し込む覚悟", mark(seed));
+  }
+
+  function sayFor(index, round) {
+    return (index + round) % 2 === 0 ? fullCapSay(index + round) :
+      fullCapRun(index + round);
+  }
+
+  // Every say this fixture can put on screen, for the remark check below.
+  function allSays(count) {
+    var says = [];
+    for (var round = 0; round < 3; round++) {
+      for (var i = 0; i < count; i++) says.push(sayFor(i, round));
+    }
+    return says;
   }
 
   var POLICY_NAMES = [
@@ -90,7 +126,7 @@
     for (var i = 0; i < count; i++) {
       seats.push(seat(i, count, mode,
         revealed ? (mode === "goofspiel" ? 13 - i : 7 - i) : -1,
-        revealed ? fullCapSay(i) : "",
+        revealed ? sayFor(i, round) : "",
         revealed ? 11.5 * (i + 1) : 0,
         full - 13 * round - i, full,
         revealed && winners.indexOf(i) >= 0));
@@ -119,7 +155,10 @@
   function payloadFor(mode) {
     var count = mode === "goofspiel" ? 4 : 2;
     var events = [{ kind: "start", round: -1 }];
-    var states = [frame(mode, count, false, 0, 11, 3, [])];
+    // The FIRST state already carries a full-cap remark on every seat, so
+    // the worst case is on screen from the first drawn frame at every width
+    // rather than only if a stage happens to straddle a reveal.
+    var states = [frame(mode, count, true, 0, 11, 3, [0])];
     for (var round = 0; round < 2; round++) {
       if (mode === "goofspiel") {
         events.push({ kind: "prize", round: round, prize: 11 - round,
@@ -129,7 +168,7 @@
       var says = [];
       var bids = [];
       for (var i = 0; i < count; i++) {
-        says.push(fullCapSay(i + round));
+        says.push(sayFor(i, round));
         bids.push(mode === "goofspiel" ? 13 - i : 7 - i);
       }
       events.push({
@@ -185,6 +224,86 @@
     };
   }
 
+  // ---- the remark gate ---------------------------------------------------
+  // A nameplate cut with an ellipsis is a design choice; a REMARK cut with
+  // one means the box is too small for the cap the server enforces
+  // (acceptance checklist item 15). viewer_smoke.mjs counts `ellipsized`
+  // draws but cannot tell the two apart -- it keeps only the first 12
+  // samples and every one of them is a nameplate -- so the fixture watches
+  // the canvas itself: it records every string the shell draws and then
+  // requires each full-cap say that reached the screen to be there IN FULL.
+  function watchDraws(win) {
+    var proto = win.CanvasRenderingContext2D.prototype;
+    var real = proto.fillText;
+    var drawn = [];
+    proto.fillText = function (text) {
+      drawn.push(String(text));
+      return real.apply(this, arguments);
+    };
+    return drawn;
+  }
+
+  function bare(text) {
+    return text.replace(/\u2026$/, "");
+  }
+
+  function squash(text) {
+    return text.replace(/\s+/g, "");
+  }
+
+  // The band draws its lines one after another, so the remark is intact iff
+  // some CONSECUTIVE run of drawn strings concatenates to it exactly (the
+  // line breaks re-space, the runes do not change).
+  function drawnInFull(drawn, quoted) {
+    var target = squash(quoted);
+    for (var i = 0; i < drawn.length; i++) {
+      var acc = "";
+      for (var j = i; j < drawn.length; j++) {
+        var body = squash(bare(drawn[j]));
+        if (!body || target.indexOf(acc + body) !== 0) break;
+        acc += body;
+        if (acc === target) return true;
+      }
+    }
+    return false;
+  }
+
+  function checkRemarks(drawn, says, where) {
+    var quoted = says.map(function (say) { return "\u201c" + say + "\u201d"; });
+    // (1) no drawn string that came out of a remark carries an ellipsis.
+    drawn.forEach(function (text) {
+      if (!/\u2026$/.test(text)) return;
+      var body = bare(text);
+      if (body.length < 4) return;
+      quoted.forEach(function (target) {
+        if (squash(target).indexOf(squash(body)) >= 0) {
+          throw new Error("remark ELLIPSIZED at " + where + ": " +
+            JSON.stringify(text));
+        }
+      });
+    });
+    // (2) every remark that reached the canvas -- identified by its own
+    // unique opening mark -- is there in full.
+    var checked = 0;
+    says.forEach(function (say, index) {
+      var badge = Array.from(say)[0];
+      var onScreen = drawn.some(function (text) {
+        return text.indexOf(badge) >= 0;
+      });
+      if (!onScreen) return;
+      checked += 1;
+      if (!drawnInFull(drawn, quoted[index])) {
+        throw new Error("remark drawn short at " + where + ": " +
+          JSON.stringify(say.slice(0, 40)));
+      }
+    });
+    if (!checked) {
+      throw new Error("no full-cap remark reached the canvas at " + where +
+        " -- the fixture would be gating nothing");
+    }
+    return checked;
+  }
+
   var shell = document.getElementById("shell");
 
   function sleep(ms) {
@@ -232,23 +351,35 @@
   async function run() {
     // The fixture checks its OWN strings first: a fixture that quietly
     // shortened the worst case would gate nothing.
-    for (var i = 0; i < 4; i++) {
-      if (Array.from(fullCapSay(i)).length !== MAX_SAY) {
+    for (var i = 0; i < 6; i++) {
+      if (Array.from(fullCapSay(i)).length !== MAX_SAY ||
+          Array.from(fullCapRun(i)).length !== MAX_SAY) {
         throw new Error("fixture say line is not " + MAX_SAY + " runes");
       }
-    }
-    for (var mode of ["goofspiel", "oshizumo"]) {
-      var win = await loadShell();
-      drive(win, payloadFor(mode));
-      for (var width of WIDTHS) {
-        shell.width = String(width);
-        shell.style.width = width + "px";
-        win.dispatchEvent(new win.Event("resize"));
-        await sleep(DWELL_MS);
-        var note = document.getElementById("note");
-        if (note) note.textContent = mode + " @ " + width + "px";
+      if (/\s/.test(fullCapRun(i))) {
+        throw new Error("the no-space worst case grew a space");
       }
     }
+    var note = document.getElementById("note");
+    var checked = 0;
+    for (var mode of ["goofspiel", "oshizumo"]) {
+      var says = allSays(mode === "goofspiel" ? 4 : 2);
+      for (var width of WIDTHS) {
+        // A fresh shell per width, sized BEFORE it loads: the resize path is
+        // exercised too, but the verdict does not depend on where playback
+        // happened to be when the frame was resized.
+        shell.width = String(width);
+        shell.style.width = width + "px";
+        if (note) note.textContent = mode + " @ " + width + "px";
+        var win = await loadShell();
+        var drawn = watchDraws(win);
+        drive(win, payloadFor(mode));
+        win.dispatchEvent(new win.Event("resize"));
+        await sleep(DWELL_MS);
+        checked += checkRemarks(drawn, says, mode + " @ " + width + "px");
+      }
+    }
+    if (note) note.textContent = "full-cap remarks drawn intact: " + checked;
     document.documentElement.setAttribute("data-replay-loaded", "true");
   }
 

@@ -29,8 +29,9 @@
   var OVERBID_MS = 900;           // the gasp banner holds this long
   var REVEAL_MS = 420;            // bid cards flip in over this
   var PUSH_MS = 380;              // the token slides one cell over this
-  var SAY_LINES = 2;
-  var MAX_SAY = 80;               // the server's own cap on `say`
+  var MAX_SAY = 80;               // the server's own cap on `say`, in RUNES
+  var SAY_MIN_PX = 7;             // the smallest legible band font
+  var WIDE_RUNE = "\u6c38";       // one full-width glyph: the widest rune
 
   // Dwell per event kind in a replay, in ms. 13 rounds of
   // prize+reveal(+overbid) is ~29 events at ~900 ms => ~26 s of playback,
@@ -293,18 +294,40 @@
 
   // ---- Seat panels ----------------------------------------------------------
 
+  // A run with no spaces in it -- a Japanese sentence is one "word" 80 runes
+  // long -- is broken on RUNE boundaries (never inside a surrogate pair)
+  // rather than cut: ellipsis is a design choice for a label and a defect
+  // for a sentence.
+  function splitToFit(ctx, word, maxWidth) {
+    if (ctx.measureText(word).width <= maxWidth) return [word];
+    var pieces = [];
+    var piece = "";
+    Array.from(word).forEach(function (rune) {
+      if (piece && ctx.measureText(piece + rune).width > maxWidth) {
+        pieces.push(piece);
+        piece = rune;
+      } else {
+        piece += rune;
+      }
+    });
+    if (piece) pieces.push(piece);
+    return pieces;
+  }
+
   function wrapLines(ctx, text, maxWidth, maxLines) {
     var words = String(text).split(/\s+/);
     var lines = [];
     var line = "";
     words.forEach(function (word) {
-      var probe = line ? line + " " + word : word;
-      if (ctx.measureText(probe).width > maxWidth && line) {
-        lines.push(line);
-        line = word;
-      } else {
-        line = probe;
-      }
+      splitToFit(ctx, word, maxWidth).forEach(function (piece) {
+        var probe = line ? line + " " + piece : piece;
+        if (ctx.measureText(probe).width > maxWidth && line) {
+          lines.push(line);
+          line = piece;
+        } else {
+          line = probe;
+        }
+      });
     });
     if (line) lines.push(line);
     var overflow = lines.length > maxLines;
@@ -315,18 +338,46 @@
     return lines.map(function (l) { return C.ellipsize(ctx, l, maxWidth); });
   }
 
-  // The say band is RESERVED from the server's own cap (MAX_SAY = 80) rather
-  // than grown to fit whatever arrived, so a full-cap line can never be laid
-  // out at a negative coordinate (cogchemists, 2026-08-24).
-  function sayFontPx(layout) {
-    var perLine = MAX_SAY / SAY_LINES;
-    var contentW = Math.min(layout.panelW - 10, 380);
-    var byWidth = (contentW - 12) / (perLine * 0.47);
-    return Math.max(7, Math.min(11 * layout.scale * layout.hud, byWidth));
+  function panelPad(layout) {
+    return Math.max(3, 5 * layout.scale);
   }
 
-  function sayBandHeight(layout) {
-    return Math.round(sayFontPx(layout) * 1.25 * SAY_LINES + 6);
+  function panelContentW(layout) {
+    return Math.min(layout.panelW - 2 * panelPad(layout), 380);
+  }
+
+  function sayFontPx(layout) {
+    return Math.max(SAY_MIN_PX, Math.round(11 * layout.scale * layout.hud));
+  }
+
+  // The say band is RESERVED from the server's own cap (MAX_SAY = 80 runes)
+  // measured in the font it will be drawn in at the current --hudscale, and
+  // reserved for as many LINES as that many WORST-CASE (full-width) runes
+  // need at this panel width -- whether or not a seat is speaking, so the
+  // scene never jumps when a remark lands. A fixed two-line band held about
+  // 136 px of run at 360 px with four seats while a full-cap remark needs
+  // about 560, so its last line came out with an ellipsis on it: a defect
+  // for a sentence (checklist item 15; cogchemists, 2026-08-24).
+  function sayBand(ctx, layout) {
+    var font = sayFontPx(layout);
+    ctx.save();
+    ctx.font = font + "px 'rajdhani', system-ui, sans-serif";
+    var wide = ctx.measureText(WIDE_RUNE).width || font;
+    ctx.restore();
+    var usable = Math.max(12, panelContentW(layout) - 8);
+    // +1 line of slack: word wrap leaves a ragged right edge, so the
+    // arithmetic run length is a floor on the lines a real sentence needs,
+    // not a ceiling.
+    var needed = Math.max(2, Math.ceil(MAX_SAY * wide / usable) + 1);
+    // The band never eats the panel: the block above it (sprite, bid card,
+    // name, total, budget bar) keeps its share.
+    var room = Math.max(2,
+      Math.floor((layout.panelH * 0.55 - 6) / (font * 1.25)));
+    var lines = Math.min(needed, room);
+    return {
+      font: font, lines: lines,
+      height: Math.round(font * 1.25 * lines + 6)
+    };
   }
 
   function drawSpentStrip(ctx, layout, view, seat, x, y, w) {
@@ -362,7 +413,7 @@
     var h = layout.panelH;
     var colour = C.seatColor(index);
     var hex = C.COLOR_HEX[colour];
-    var pad = Math.max(3, 5 * layout.scale);
+    var pad = panelPad(layout);
 
     ctx.save();
     ctx.fillStyle = seat.winner ? C.rgba(hex, 0.12) : C.STRIP;
@@ -374,11 +425,12 @@
     ctx.stroke();
     ctx.restore();
 
-    var bandH = sayBandHeight(layout);
+    var band = sayBand(ctx, layout);
+    var bandH = band.height;
     var bodyH = h - bandH - pad * 2;
     // Two seats means very wide panels; the content block is centred inside
     // the panel rather than stretched to its edges.
-    var contentW = Math.min(w - 2 * pad, 380);
+    var contentW = panelContentW(layout);
     var contentX = x + (w - contentW) / 2;
     var cardH = Math.max(26, Math.min(bodyH * 0.52, contentW * 0.42, 92));
     var cardW = cardH * CARD_RATIO;
@@ -455,8 +507,7 @@
     // The say band, always reserved, drawn last.
     var bandY = y + h - bandH - 2;
     ctx.save();
-    var fontPx = sayFontPx(layout);
-    ctx.font = Math.round(fontPx) + "px 'rajdhani', system-ui, sans-serif";
+    ctx.font = band.font + "px 'rajdhani', system-ui, sans-serif";
     ctx.textAlign = "left";
     ctx.textBaseline = "top";
     if (seat.say) {
@@ -465,9 +516,9 @@
       ctx.fill();
       ctx.fillStyle = C.INK;
       var lines = wrapLines(ctx, "\u201c" + seat.say + "\u201d",
-        contentW - 8, SAY_LINES);
+        contentW - 8, band.lines);
       lines.forEach(function (line, i) {
-        ctx.fillText(line, contentX + 4, bandY + 3 + i * fontPx * 1.25);
+        ctx.fillText(line, contentX + 4, bandY + 3 + i * band.font * 1.25);
       });
     } else {
       ctx.strokeStyle = "rgba(242, 232, 216, 0.10)";
