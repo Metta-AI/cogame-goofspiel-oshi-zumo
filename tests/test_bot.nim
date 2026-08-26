@@ -60,6 +60,10 @@ proc playAll(config: GameConfig, kinds: seq[ScriptKind]): Sim =
       check result.coins[seat] >= 0
     rounds += 1
   check result.done
+  ## The episode reached its NATURAL end, and the results the platform reads
+  ## say so: `reason` is "complete" for every rules ending and "deadline"
+  ## only for a wall-clock stop, which a scripted episode never takes.
+  check result.resultsJson()["reason"].getStr() == "complete"
 
 suite "12 bounded, legal orders":
   test "200 seeded episodes x both modes x both baselines":
