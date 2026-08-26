@@ -47,11 +47,24 @@ when isMainModule:
   ## returns none), and the game's quit(0) can outrun the flushed `final`
   ## frame. A dead socket is a normal end of episode, not a failure: the
   ## player must exit 0 or hosted certification reports player_error.
+  ##
+  ## The read is BOUNDED. whisky's default timeout is -1, i.e. block until a
+  ## frame arrives or the socket dies; the bound here is the platform's whole
+  ## episode timeout plus a margin, which is longer than any legitimate gap
+  ## between frames (the game broadcasts every round and sends `final` before
+  ## it quits) and still an explicit end to the wait rather than an open one.
+  let episodeSeconds =
+    try:
+      max(60.0, parseFloat(getEnv("COWORLD_TIMEOUT_SECONDS", "1200").strip()))
+    except ValueError:
+      1200.0
+  let idleTimeoutMs = int(episodeSeconds * 1000.0) + 120_000
   try:
     while true:
-      let received = socket.receiveMessage()
+      let received = socket.receiveMessage(timeout = idleTimeoutMs)
       if received.isNone:
-        echo "gozu player: connection closed, exiting"
+        echo "gozu player: no frame for ", idleTimeoutMs div 1000,
+          "s or connection closed, exiting"
         break
       let message = received.get()
       if message.kind != TextMessage:
