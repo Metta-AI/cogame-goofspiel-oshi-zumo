@@ -449,19 +449,34 @@ proc textOf(client: LlmClient, response: Response, error, url: string):
     raise newException(GozuError, "reply cut off at max_tokens before any " &
       "JSON: " & cleanText(result.replace("\n", " "), MaxErrorLen))
 
+proc rankLetter(text: string): int =
+  ## The goofspiel card letters are a BARE token — "K", "k", "K." — and not
+  ## any reply that merely STARTS with one: `"a bid of 11"` read as the ace
+  ## and `"just 12"` read as the jack are legal cards, so nothing downstream
+  ## rejects them and the seat silently bids a card it never asked for.
+  ## Prose falls through to the numeric scan, whose raise is what triggers
+  ## the retry-with-the-legal-set and then the scripted fallback.
+  let token = text.strip(chars = Whitespace + {'"', '\'', '.', '!', ',', ':',
+    ';', '*', '`'})
+  if token.len != 1:
+    return 0
+  case token[0].toUpperAscii()
+  of 'A': 1
+  of 'J': 11
+  of 'Q': 12
+  of 'K': 13
+  else: 0
+
 proc parseBidText(text: string, mode: Mode): int =
   ## A numeric string with surrounding whitespace or trailing prose
-  ## ("11 — the king"), or, in goofspiel only, a card letter.
+  ## ("11 — the king"), or, in goofspiel only, a bare card letter.
   let trimmed = text.strip()
   if trimmed.len == 0:
     raise newException(GozuError, "empty bid")
   if mode == mGoofspiel:
-    case trimmed[0].toUpperAscii()
-    of 'A': return 1
-    of 'J': return 11
-    of 'Q': return 12
-    of 'K': return 13
-    else: discard
+    let rank = rankLetter(trimmed)
+    if rank > 0:
+      return rank
   var head = ""
   for index in 0 ..< trimmed.len:
     let c = trimmed[index]
@@ -484,7 +499,7 @@ proc parseBidText(text: string, mode: Mode): int =
 
 proc parseDecision*(payload: JsonNode, mode: Mode): Decision =
   ## "bid" is an integer, a float (rounded half-up), a numeric string with
-  ## trailing prose, or - in goofspiel - a card letter A/J/Q/K.
+  ## trailing prose, or - in goofspiel - a bare card letter A/J/Q/K.
   result.notes = cleanText(payload{"notes"}.getStr(), MaxNotesLen)
   result.say = cleanText(payload{"say"}.getStr(), MaxSayLen).replace("\n", " ")
   let node = payload{"bid"}
