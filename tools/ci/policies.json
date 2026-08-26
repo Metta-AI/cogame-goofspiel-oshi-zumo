@@ -1,0 +1,31 @@
+[
+  {
+    "name": "goofspiel-oshi-zumo-tempo",
+    "run": "/bin/goofspiel-oshi-zumo-player",
+    "env": {
+      "PLAYER_PROMPT": "Pace the budget; do not chase every prize. GOOFSPIEL: price each prize against what it costs you. By default bid the card of the same rank as the prize; bid one rank higher when a rival has already spent that rank; dump your lowest remaining card on any prize of 4 or less. Every rival's remaining cards are public - track them, and take the biggest prize uncontested on the round you are the only seat still holding a high card. OSHI-ZUMO: never outbid by more than one coin. Win cheap pushes and keep a reserve at least as large as the number of pushes you still need. Spend your whole purse only when a single loss would push the token off your own edge."
+    }
+  },
+  {
+    "name": "goofspiel-oshi-zumo-reader",
+    "run": "/bin/goofspiel-oshi-zumo-player",
+    "env": {
+      "PLAYER_PROMPT": "Model the opponents first, then price the prize. Keep a running note of every rival's bid relative to the prize - over, level, under - and reuse it: rivals who overpay early run out of high cards, so from mid-game bid one rank above their observed average on big prizes and the minimum on small ones. GOOFSPIEL: concede any prize two rivals are both likely to fight for - let them burn cards against each other and take the next one. OSHI-ZUMO: alternate a cheap probe with a decisive strike. If the opponent's last three bids were each above half their remaining purse, bid one coin and let them bleed; if they have been minimum-bidding, spend enough to take two pushes in a row."
+    },
+    "player": "ply_bac48eb1-662e-44f8-973d-f3e016dccf5d"
+  },
+  {
+    "name": "goofspiel-oshi-zumo-match",
+    "run": "/bin/goofspiel-oshi-zumo-player",
+    "env": {
+      "PLAYER_SCRIPTED": "match"
+    }
+  },
+  {
+    "name": "goofspiel-oshi-zumo-hoard",
+    "run": "/bin/goofspiel-oshi-zumo-player",
+    "env": {
+      "PLAYER_SCRIPTED": "hoard"
+    }
+  }
+]

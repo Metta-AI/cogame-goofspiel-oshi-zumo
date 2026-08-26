@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>goofspiel-oshi-zumo renderer fixture</title>
+<style>
+  html, body { margin: 0; padding: 0; background: #120d09; color: #f2e8d8;
+    font: 12px system-ui, sans-serif; }
+  #shell { border: 0; display: block; background: #120d09; }
+  #note { padding: 4px 8px; }
+</style>
+</head>
+<body>
+<div id="note">renderer fixture — driving the SHIPPED bundle</div>
+<iframe id="shell" width="1280" height="620"></iframe>
+<script>
+// Worst-case TEXT fixture for the wasm-viewer job. Assertion 26 of the design
+// note.
+//
+// WHY: every replay CI produces carries ZERO LLM text. docker_smoke.sh runs
+// with no ANTHROPIC_API_KEY, so every seat plays a scripted baseline and a
+// scripted baseline emits no `say`. Nothing that plays a CI replay therefore
+// ever exercises the say band or the feed's quoted lines -- exactly the
+// chrome that draws captions where there may be no room (cogchemists,
+// 2026-08-24).
+//
+// HOW: this page loads the SHIPPED dist/static-replay-viewer/index.html in an
+// iframe -- the real page, the real chrome.css, the real renderer, the real
+// geometry -- and only bypasses the wasm entry, handing GozuRenderer a
+// synthetic payload directly. A fixture that re-implements the drawing gates
+// nothing (particle-worlds 46cf69d, 2026-08-26).
+//
+// It drives both modes at 360, 640 and 1280 px with a FULL-CAP 80-rune `say`
+// on every seat and the longest plausible policy names, hoists the iframe's
+// canvas-text tally into this window so viewer_smoke.mjs --strict-text-bounds
+// actually reads it, and only then sets data-replay-loaded on this document.
+(function () {
+  "use strict";
+
+  var MAX_SAY = 80;              // the server's own cap, in RUNES
+  var WIDTHS = [360, 640, 1280];
+  var DWELL_MS = 900;
+
+  function fail(message) {
+    document.documentElement.setAttribute("data-replay-error", String(message));
+    var note = document.getElementById("note");
+    if (note) note.textContent = "FIXTURE FAILED: " + message;
+  }
+
+  // A full-cap say line: multi-byte, mixed widths, exactly MAX_SAY runes.
+  function fullCapSay(seed) {
+    var source = "全力で押し出す🎴 burning a king on a four ぎりぎりの入札 " +
+      "🎴 hold the reserve " + seed + " ";
+    var runes = [];
+    while (runes.length < MAX_SAY) {
+      runes = runes.concat(Array.from(source));
+    }
+    return runes.slice(0, MAX_SAY).join("");
+  }
+
+  var POLICY_NAMES = [
+    "goofspiel-oshi-zumo-reader-daveey-1",
+    "goofspiel-oshi-zumo-tempo-daveey",
+    "Baseline (1)",
+    "goofspiel-oshi-zumo-hoard-filler"
+  ];
+  var ALIASES = ["Sprocket", "Gizmo", "Ratchet", "Widget"];
+
+  function seat(index, count, mode, bid, say, points, budget, full, winner) {
+    return {
+      name: ALIASES[index % ALIASES.length],
+      points: points,
+      score: 0,
+      hand: mode === "goofspiel" ? [1, 2, 3, 11, 12, 13] : [],
+      coins: mode === "goofspiel" ? 0 : budget,
+      bid: bid,
+      say: say,
+      notes: "",
+      spent: full - budget,
+      budget: budget,
+      budgetFull: full,
+      winner: winner,
+      award: winner ? points : 0
+    };
+  }
+
+  function frame(mode, count, revealed, round, prize, position, winners) {
+    var full = mode === "goofspiel" ? 91 : 20;
+    var seats = [];
+    for (var i = 0; i < count; i++) {
+      seats.push(seat(i, count, mode,
+        revealed ? (mode === "goofspiel" ? 13 - i : 7 - i) : -1,
+        revealed ? fullCapSay(i) : "",
+        revealed ? 11.5 * (i + 1) : 0,
+        full - 13 * round - i, full,
+        revealed && winners.indexOf(i) >= 0));
+    }
+    return {
+      mode: mode,
+      seats: seats,
+      round: round,
+      maxRounds: mode === "goofspiel" ? 13 : 20,
+      roundsPlayed: revealed ? round + 1 : round,
+      prize: mode === "goofspiel" ? prize : -1,
+      prizesLeft: mode === "goofspiel" ? [2, 5, 8, 9, 12] : [],
+      position: position,
+      cells: mode === "goofspiel" ? 0 : 7,
+      push: revealed && mode === "oshizumo" ? 1 : null,
+      overbid: revealed ? winners[0] : null,
+      margin: revealed ? 6 : 0,
+      winners: revealed ? winners : [],
+      phase: revealed ? "reveal" : "bidding",
+      gameDone: false,
+      reason: "",
+      ending: ""
+    };
+  }
+
+  function payloadFor(mode) {
+    var count = mode === "goofspiel" ? 4 : 2;
+    var events = [{ kind: "start", round: -1 }];
+    var states = [frame(mode, count, false, 0, 11, 3, [])];
+    for (var round = 0; round < 2; round++) {
+      if (mode === "goofspiel") {
+        events.push({ kind: "prize", round: round, prize: 11 - round,
+          prizesLeft: [2, 5, 8, 9, 12] });
+        states.push(frame(mode, count, false, round, 11 - round, -1, []));
+      }
+      var says = [];
+      var bids = [];
+      for (var i = 0; i < count; i++) {
+        says.push(fullCapSay(i + round));
+        bids.push(mode === "goofspiel" ? 13 - i : 7 - i);
+      }
+      events.push({
+        kind: "reveal", round: round, bids: bids, winners: [0],
+        award: [11 - round, 0, 0, 0].slice(0, count), margin: 6,
+        coinsAfter: [7, 6, 5, 4].slice(0, count),
+        handsAfter: [[1, 2], [1, 3], [2, 3], [4, 5]].slice(0, count),
+        points: [11, 4, 2, 0].slice(0, count), says: says,
+        notes: says, scripted: [false, false, false, false].slice(0, count),
+        fellBack: [false, false, false, false].slice(0, count)
+      });
+      states.push(frame(mode, count, true, round, 11 - round,
+        mode === "goofspiel" ? -1 : 4 + round, [0]));
+      events.push({ kind: "overbid", round: round, seat: 0,
+        bid: bids[0], margin: 6, over: bids[0] - 6 });
+      states.push(frame(mode, count, true, round, 11 - round,
+        mode === "goofspiel" ? -1 : 4 + round, [0]));
+      if (mode === "oshizumo") {
+        events.push({ kind: "push", round: round, delta: 1,
+          positionAfter: 4 + round });
+        states.push(frame(mode, count, true, round, -1, 4 + round, [0]));
+      }
+    }
+    events.push({
+      kind: "end", round: 2, reason: "complete",
+      ending: mode === "goofspiel" ? "prizes-exhausted" : "pushout",
+      scores: [1, -0.33, -0.33, -0.34].slice(0, count),
+      collusionIndex: [0, 0, 0, 0].slice(0, count)
+    });
+    var last = frame(mode, count, true, 1, 10, mode === "goofspiel" ? -1 : 5,
+      [0]);
+    last.gameDone = true;
+    last.reason = "complete";
+    last.ending = mode === "goofspiel" ? "prizes-exhausted" : "pushout";
+    states.push(last);
+    return {
+      protocol: "gozu.replay.v1",
+      names: ALIASES.slice(0, count),
+      policyNames: POLICY_NAMES.slice(0, count),
+      config: { mode: mode, seats: count, maxRounds: 13, seed: 1 },
+      events: events,
+      states: states,
+      results: {
+        names: POLICY_NAMES.slice(0, count),
+        scores: [1, -0.33, -0.33, -0.34].slice(0, count),
+        points: [11, 4, 2, 0].slice(0, count),
+        spent: [40, 30, 20, 10].slice(0, count),
+        fallbacks: [0, 1, 0, 0].slice(0, count),
+        rounds: 2, maxRounds: 13, mode: mode, reason: "complete",
+        ending: mode === "goofspiel" ? "prizes-exhausted" : "pushout",
+        finalPosition: mode === "goofspiel" ? -1 : 7
+      }
+    };
+  }
+
+  var shell = document.getElementById("shell");
+
+  function sleep(ms) {
+    return new Promise(function (resolve) { setTimeout(resolve, ms); });
+  }
+
+  function loadShell() {
+    return new Promise(function (resolve, reject) {
+      shell.onload = function () { resolve(shell.contentWindow); };
+      shell.onerror = function () { reject(new Error("iframe failed")); };
+      // ?replay=/hang is served by tools/ci/fixture_server.py and never
+      // answers, so the shell parks on its own fetch and posts nothing but
+      // `loading`: THIS page owns the load signal. The wasm entry is the
+      // only thing bypassed; everything else is the shipped page.
+      shell.src = "./index.html?replay=" +
+        encodeURIComponent(location.origin + "/hang");
+    });
+  }
+
+  function drive(win, payload) {
+    var doc = win.document;
+    if (!win.GozuRenderer) throw new Error("GozuRenderer missing in the shell");
+    var loading = doc.getElementById("loading");
+    if (loading) loading.style.display = "none";
+    doc.documentElement.removeAttribute("data-replay-error");
+    // Hoist the iframe's canvas-text tally so viewer_smoke.mjs, which reads
+    // it from the TOP window, sees the draws that actually happened.
+    if (win.__coworldTextBounds) {
+      window.__coworldTextBounds = win.__coworldTextBounds;
+    }
+    win.GozuRenderer.attachReplay({
+      canvas: doc.getElementById("table"),
+      feed: doc.getElementById("feed"),
+      scrub: doc.getElementById("scrub"),
+      playButton: doc.getElementById("play"),
+      label: doc.getElementById("pos"),
+      clock: doc.getElementById("clock"),
+      scorebug: doc.getElementById("scorebug"),
+      endscreen: doc.getElementById("endscreen"),
+      assetBase: "./assets",
+      payload: payload
+    });
+  }
+
+  async function run() {
+    // The fixture checks its OWN strings first: a fixture that quietly
+    // shortened the worst case would gate nothing.
+    for (var i = 0; i < 4; i++) {
+      if (Array.from(fullCapSay(i)).length !== MAX_SAY) {
+        throw new Error("fixture say line is not " + MAX_SAY + " runes");
+      }
+    }
+    for (var mode of ["goofspiel", "oshizumo"]) {
+      var win = await loadShell();
+      drive(win, payloadFor(mode));
+      for (var width of WIDTHS) {
+        shell.width = String(width);
+        shell.style.width = width + "px";
+        win.dispatchEvent(new win.Event("resize"));
+        await sleep(DWELL_MS);
+        var note = document.getElementById("note");
+        if (note) note.textContent = mode + " @ " + width + "px";
+      }
+    }
+    document.documentElement.setAttribute("data-replay-loaded", "true");
+  }
+
+  window.addEventListener("load", function () {
+    run().catch(function (error) { fail(error && error.message || error); });
+  });
+})();
+</script>
+</body>
+</html>
