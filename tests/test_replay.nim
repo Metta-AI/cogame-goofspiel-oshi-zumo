@@ -163,6 +163,23 @@ suite "17 replayMatch checks what it re-derives":
     expect GozuError:
       discard replayMatch(rec.config, events)
 
+  test "a truncated points array raises":
+    ## The length guard used to SKIP the comparison when the arrays differed,
+    ## so a reveal carrying the wrong number of point totals re-derived
+    ## silently.
+    let rec = prizesExhausted()
+    var events = rec.sim.events
+    var index = -1
+    for position, event in events:
+      if event.kind == evReveal:
+        index = position
+        break
+    check index >= 0
+    check events[index].points.len == 4
+    events[index].points.setLen(3)
+    expect GozuError:
+      discard replayMatch(rec.config, events)
+
 # ---- 18: strict UTF-8, on rune boundaries ---------------------------------
 
 suite "18 the replay bytes are strict UTF-8":

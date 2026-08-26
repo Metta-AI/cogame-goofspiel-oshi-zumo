@@ -706,11 +706,14 @@ proc checkReveal(event, logged: GameEvent) =
       event.handsAfter != logged.handsAfter:
     raise newException(GozuError,
       "round " & $event.round & " reveal does not match the re-derivation")
-  if event.points.len == logged.points.len:
-    for index in 0 ..< event.points.len:
-      if not nearly(event.points[index], logged.points[index]):
-        raise newException(GozuError,
-          "round " & $event.round & " points do not match the re-derivation")
+  if event.points.len != logged.points.len:
+    raise newException(GozuError,
+      "round " & $event.round & " points array does not match the " &
+      "re-derivation")
+  for index in 0 ..< event.points.len:
+    if not nearly(event.points[index], logged.points[index]):
+      raise newException(GozuError,
+        "round " & $event.round & " points do not match the re-derivation")
 
 proc replayMatch*(config: GameConfig, events: seq[GameEvent]): seq[Sim] =
   ## Re-derives the state timeline from a recorded event log by replaying
