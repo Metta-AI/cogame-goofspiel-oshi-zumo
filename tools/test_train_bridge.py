@@ -19,6 +19,13 @@ for variant, players, slots in (("goofspiel-4", 4, 14), ("oshi-zumo-2", 2, 21)):
             dimensions = None
             decisions = 0
             while not isinstance(observation, Terminal):
+                for past in observation.semantic_view["history"]:
+                    if variant == "goofspiel-4":
+                        assert 1 <= past["prize"] <= 13
+                        assert past["position_after"] == -1
+                    else:
+                        assert past["prize"] == -1
+                        assert -1 <= past["position_after"] <= 7
                 encoding = DecisionEncoding.model_validate_json(
                     bridge.request({"kind": "encode"})
                 )

@@ -14,10 +14,18 @@ proc seedOf(value: string): int =
 
 proc publicHistory(game: Sim): JsonNode =
   result = newJArray()
+  var positions = newSeq[int](game.config.maxRounds)
+  for event in game.events:
+    if event.kind == evPush:
+      positions[event.round] = event.positionAfter
   for event in game.events:
     if event.kind == evReveal:
-      result.add(%*{"round": event.round, "prize": event.prize,
-        "bids": event.bids, "position_after": event.positionAfter})
+      let prize = if game.config.mode == mGoofspiel:
+        game.prizeOrder[event.round] else: -1
+      let position = if game.config.mode == mOshiZumo:
+        positions[event.round] else: -1
+      result.add(%*{"round": event.round, "prize": prize,
+        "bids": event.bids, "position_after": position})
 
 proc decision(game: Sim, id, seat: int): JsonNode =
   %*{
@@ -57,13 +65,13 @@ proc encoding(game: Sim, id, seat: int): JsonNode =
     for card in 1 .. handSlots:
       values.add(%(if card in game.hands[other]: 1 else: 0))
   var revealed = 0
-  for event in game.events:
-    if event.kind == evReveal:
-      values.add(%event.prize)
-      values.add(%event.positionAfter)
-      for bid in event.bids:
-        values.add(%bid)
-      inc revealed
+  let history = game.publicHistory()
+  for round in history:
+    values.add(round["prize"])
+    values.add(round["position_after"])
+    for bid in round["bids"]:
+      values.add(bid)
+    inc revealed
   for round in revealed ..< game.config.maxRounds:
     for field in 0 ..< game.seats + 2:
       values.add(%0)
