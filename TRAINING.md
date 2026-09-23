@@ -34,3 +34,23 @@ Goofspiel, and 144 training and 36 validation examples for Oshi-Zumo. All
 maximum was 1,182. One CPU optimizer step per variant with a local tiny model
 verifies the Metta post-training path. These examples distill the scripted
 teacher; they do not establish stronger league play.
+
+# Numeric reinforcement learning
+
+Compile the persistent bridge and pass its manifest and variant to Metta's
+`recipes.external.coworld.train` (native PufferLib) or
+`recipes.external.coworld_metta_rl.train` (Metta RL):
+
+```sh
+nim c -d:release --path:src -o:/tmp/gozu-train-bridge tools/train_bridge.nim
+python tools/test_train_bridge.py /tmp/gozu-train-bridge
+```
+
+The certified Goofspiel and Oshi-Zumo games expose 14 and 21 bid slots,
+respectively. The simulator's `legalBids` masks spent cards and unaffordable
+coin bids. Numeric observations contain the current public prize or token
+position, player resources, and resolved bid history. They exclude future
+prize order and the other seats' sealed bids. A round resolves only after
+every seat has chosen. The `match` policy supplies opponents and teacher
+labels. Complete games return the native zero-sum scores. Hosted prompts
+remain available to the Metta post-training exporter.
