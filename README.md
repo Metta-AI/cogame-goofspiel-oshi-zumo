@@ -24,13 +24,12 @@ ever made is public the instant a round resolves. The only unknowns are what
 the rivals are bidding *this* round and, in goofspiel, the order of the prizes
 still to come. The whole skill is budget pacing and opponent modelling.
 
-**The game is LLM-driven and a policy is just a prompt.** Every round the game
-server sends each seat's policy prompt plus the public table to Claude — all
-seats in **one parallel batch**, because the rules make the round simultaneous
-— and each reply is one number. Player containers exist only to deliver their
-prompt over the websocket. Two built-in **scripted baselines** play any seat
-that registers as scripted, and every seat when no LLM credentials are
-available, so episodes (and offline certification) always complete:
+Prompt players send their strategy to the game. The server asks Claude for
+their bids in one parallel batch each round. External players receive a
+seat observation and return a sealed legal bid through the same player socket.
+The bundled Jev policy ranks those bids in its own player process. Two built-in
+**scripted baselines** play any seat that registers as scripted. They also
+cover prompt seats when no game LLM credentials are available:
 
 - **`match`** — bid the card of the same rank as the prize, else the cheapest
   card above it, else your highest. In oshi-zumo, spend the even rate that
@@ -69,8 +68,8 @@ feed line, its own scrub beat and a full-width banner.
 - `src/gozu/llm.nim` — Claude client (one parallel batch per round) + the
   `match` and `hoard` scripted baselines
 - `src/gozu/server.nim` — mummy HTTP/WS server (player, global, replay)
-- `src/gozu_player.nim` — the prompt-delivery player (`PLAYER_PROMPT` /
-  `PLAYER_SCRIPTED` env)
+- `src/gozu_player.nim` — prompt, scripted, and optional external Jev player
+- `src/gozu/jev_policy.nim` — player-side System One bid ranking
 - `client/chrome_common.js` — the cogame-babel chrome, copied region by region
   (see the header; `tools/ci/chrome_scope_check.mjs` enforces it)
 - `client/renderer.js` — the game block: the bid table, the dohyō track, the
@@ -127,3 +126,15 @@ uv run coworld upload-policy <image> --name my-gozu \
 ```
 
 Or field a baseline: same image, `--env PLAYER_SCRIPTED=match` (or `hoard`).
+Set `PLAYER_JEV=1` for a separate external player using a seat-local System One
+route. That route can be the Coworld sidecar or a direct TypeSafe key. This
+option does not change the canonical prompt/scripted game fixture.
+
+External players send `{"type":"register","control":"external"}` after
+connecting. At each open round, the `state.observation` object gives the seat's
+legal bids, face-up prize or token position, public resources and bid history,
+and its own private notes. The player replies with
+`{"type":"bid","round":R,"bid":N,"say":"...","notes":"..."}`.
+The game accepts one legal bid for that round, reveals all bids together, and
+uses the `match` baseline if an external player does not reply before the
+round deadline.
