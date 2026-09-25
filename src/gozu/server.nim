@@ -9,16 +9,18 @@
 ##   GET /client/chrome_common.js    - the inherited cogame-babel chrome
 ##   GET /client/chrome.css
 ##   GET /client/assets/<name>       - sprites and fonts
-##   WS  /player?slot=N&token=T      - player protocol (prompt delivery)
+##   WS  /player?slot=N&token=T      - player protocol
 ##   WS  /global                     - spectator snapshots
 ##   WS  /replay                     - replay payload (replay mode)
 ##
 ## Player protocol (gozu.player.v1), all JSON text frames:
 ##   game -> player: {"type":"welcome","slot":N,"name":...}
-##                   {"type":"state",...} after every round, redacted to the
-##                   seat's own resources until the round resolves
+##                   {"type":"state",...} at each round boundary; an open
+##                   round includes a seat observation and legal bids
 ##                   {"type":"final","scores":[...],"points":[...]}
 ##   player -> game: {"type":"prompt","prompt":"...","scripted":"match"|...}
+##                   {"type":"register","control":"external"}
+##                   {"type":"bid","round":R,"bid":N,"say":"...","notes":"..."}
 ##
 ## Bids are SEALED server-side: `broadcastLocked` for round r only ever runs
 ## after `applyBids(r)`, so no socket can see one seat's bid before every
@@ -45,6 +47,10 @@ type
     sim: Sim
     prompts: seq[string]
     scripted: seq[ScriptKind]
+    registered: seq[bool]
+    external: seq[bool]
+    externalBids: seq[Decision]
+    bidReceived: seq[bool]
     playerSockets: Table[int, WebSocket]
     socketSlots: Table[WebSocket, int]
     globalSockets: HashSet[WebSocket]
@@ -105,7 +111,7 @@ proc playerStateJson(gs: GameState, slot: int): JsonNode =
   if gs.sim.config.mode == mGoofspiel:
     for card in gs.sim.hands[slot]:
       hand.add(%card)
-  %*{
+  result = %*{
     "type": "state",
     "slot": slot,
     "name": gs.sim.names[slot],
@@ -127,6 +133,44 @@ proc playerStateJson(gs: GameState, slot: int): JsonNode =
     "reason": gs.sim.reason,
     "ending": gs.sim.ending
   }
+  if gs.sim.roundOpen():
+    var hands = newJArray()
+    var coins = newJArray()
+    var points = newJArray()
+    var names = newJArray()
+    var history = newJArray()
+    for other in 0 ..< gs.sim.seats:
+      hands.add(%gs.sim.hands[other])
+      coins.add(%gs.sim.coins[other])
+      points.add(%gs.sim.points[other])
+      names.add(%gs.sim.names[other])
+    for event in gs.sim.events:
+      if event.kind == evReveal:
+        history.add(%*{
+          "round": event.round,
+          "prize": (if gs.sim.config.mode == mGoofspiel:
+            gs.sim.prizeOrder[event.round] else: -1),
+          "bids": event.bids,
+          "points": event.points,
+          "coinsAfter": event.coinsAfter
+        })
+    result["observation"] = %*{
+      "round": gs.sim.round,
+      "mode": $gs.sim.config.mode,
+      "slot": slot,
+      "names": names,
+      "legalBids": gs.sim.legalBids(slot),
+      "prize": gs.sim.prize(),
+      "prizesLeft": gs.sim.prizesLeft(gs.sim.round),
+      "hands": hands,
+      "coins": coins,
+      "points": points,
+      "position": gs.sim.position,
+      "fieldCells": (if gs.sim.config.mode == mOshiZumo:
+        fieldCells(gs.sim.config) else: 0),
+      "notes": gs.sim.notes[slot],
+      "history": history
+    }
 
 proc broadcastLocked(gs: GameState) =
   ## Callers hold stateLock. Spectators get the whole table; players get the
@@ -244,6 +288,9 @@ proc playEpisode(runtimeConfig: RuntimeConfig) {.gcsafe.} =
       var allConnected = false
       withLock stateLock:
         allConnected = state.playerSockets.len >= config.tokens.len
+        for registered in state.registered:
+          if not registered:
+            allConnected = false
       if allConnected:
         break
       sleep(200)
@@ -281,8 +328,10 @@ proc playEpisode(runtimeConfig: RuntimeConfig) {.gcsafe.} =
     while true:
       var simCopy: Sim
       var seats: seq[int]
+      var llmSeats: seq[int]
       var prompts: seq[string]
       var scripted: seq[ScriptKind]
+      var external: seq[bool]
       let roundStart = epochTime()
       withLock stateLock:
         if state.sim.done:
@@ -300,9 +349,13 @@ proc playEpisode(runtimeConfig: RuntimeConfig) {.gcsafe.} =
         state.sim.beginRound()
         for seat in 0 ..< config.players.len:
           seats.add(seat)
+          state.bidReceived[seat] = false
+          if not state.external[seat]:
+            llmSeats.add(seat)
         simCopy = state.sim
         prompts = state.prompts
         scripted = state.scripted
+        external = state.external
         echo "gozu: round ", state.sim.round + 1, " of ", config.maxRounds,
           (if config.mode == mGoofspiel: " prize " & $state.sim.prize()
            else: " token " & $state.sim.position),
@@ -310,14 +363,32 @@ proc playEpisode(runtimeConfig: RuntimeConfig) {.gcsafe.} =
         state.broadcastLocked()
 
       var usedLlm = false
-      for seat in seats:
+      for seat in llmSeats:
         if scripted[seat] == skNone and not client.disabled:
           usedLlm = true
 
       ## The slow part (Claude, ONE parallel batch for the round) runs
       ## outside the lock on a snapshot; only this thread mutates the sim,
       ## so the snapshot cannot go stale.
-      let decisions = client.decideAll(simCopy, seats, prompts, scripted)
+      let llmDecisions = client.decideAll(simCopy, llmSeats, prompts, scripted)
+      var decisions = newSeq[Decision](seats.len)
+      for index, seat in llmSeats:
+        decisions[seat] = llmDecisions[index]
+
+      ## External policies receive the same public table and a seat-private
+      ## memo. Their sealed bids arrive while the LLM batch is in flight.
+      ## Wait only through the round's existing model reserve, then use the
+      ## ordinary baseline for missing seats so the episode still settles.
+      let bidDeadline = roundStart + reserve - 2.0
+      while epochTime() < bidDeadline:
+        var allReceived = true
+        withLock stateLock:
+          for seat in seats:
+            if external[seat] and not state.bidReceived[seat]:
+              allReceived = false
+        if allReceived:
+          break
+        sleep(20)
 
       withLock stateLock:
         var bids: seq[int]
@@ -327,6 +398,12 @@ proc playEpisode(runtimeConfig: RuntimeConfig) {.gcsafe.} =
         var fellBack: seq[bool]
         for index, seat in seats:
           var decision = decisions[index]
+          if external[seat]:
+            if state.bidReceived[seat]:
+              decision = state.externalBids[seat]
+            else:
+              decision = scriptedAction(state.sim, seat, skMatch)
+              decision.fellBack = true
           if decision.bid notin state.sim.legalBids(seat):
             echo "gozu: seat ", seat, " bid ", decision.bid,
               " rejected; using scripted fallback"
@@ -335,7 +412,8 @@ proc playEpisode(runtimeConfig: RuntimeConfig) {.gcsafe.} =
           bids.add(decision.bid)
           says.add(decision.say)
           notes.add(decision.notes)
-          wasScripted.add(scripted[seat] != skNone or client.disabled)
+          wasScripted.add(not external[seat] and
+            (scripted[seat] != skNone or client.disabled))
           fellBack.add(decision.fellBack)
           echo "gozu: round ", state.sim.round + 1, " ",
             state.sim.names[seat], " bids ", decision.bid,
@@ -504,8 +582,31 @@ proc websocketHandler(
           withLock stateLock:
             state.prompts[slot] = prompt
             state.scripted[slot] = kind
+            state.registered[slot] = true
+            state.external[slot] = false
           echo "gozu: slot ", slot, " delivered a prompt (", prompt.len,
             " chars", (if kind != skNone: ", scripted " & $kind else: ""), ")"
+        elif payload{"type"}.getStr() == "register" and
+            payload{"control"}.getStr() == "external":
+          withLock stateLock:
+            state.registered[slot] = true
+            state.external[slot] = true
+          echo "gozu: slot ", slot, " registered an external policy"
+        elif payload{"type"}.getStr() == "bid":
+          let round = payload["round"].getInt()
+          let bid = payload["bid"].getInt()
+          let say = cleanText(payload{"say"}.getStr(), MaxSayLen)
+          let notes = cleanText(payload{"notes"}.getStr(), MaxNotesLen)
+          withLock stateLock:
+            if state.external[slot] and state.sim.roundOpen() and
+                state.sim.round == round and
+                bid in state.sim.legalBids(slot) and
+                not state.bidReceived[slot]:
+              state.externalBids[slot] = Decision(
+                bid: bid, say: say, notes: notes)
+              state.bidReceived[slot] = true
+              echo "gozu: slot ", slot, " submitted sealed bid for round ",
+                round
       except CatchableError as error:
         echo "gozu: ignoring bad player frame: ",
           cleanText(error.msg, MaxErrorLen)
@@ -588,6 +689,10 @@ proc runGameServer*(config: GameConfig, runtimeConfig: RuntimeConfig) =
   state.sim = initSim(config)
   state.prompts = newSeq[string](config.players.len)
   state.scripted = newSeq[ScriptKind](config.players.len)
+  state.registered = newSeq[bool](config.players.len)
+  state.external = newSeq[bool](config.players.len)
+  state.externalBids = newSeq[Decision](config.players.len)
+  state.bidReceived = newSeq[bool](config.players.len)
   runtimeConfigGlobal = runtimeConfig
 
   let router = buildRouter(replayMode = false)
