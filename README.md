@@ -112,6 +112,8 @@ episode is `tools/ci/docker_smoke.sh <image>`; it drives the certification
 fixture with one game container and four player containers, validates
 `results.json` against the manifest's own `results_schema`, and keeps the
 replay for the viewer smoke.
+`python3 tools/ci/jev_smoke.py <image>` checks external sealed bids against
+scripted players in both modes with a mock System One sidecar.
 
 Coworld packaging is done by `.github/workflows/coworld-release.yml`
 (build → certify → upload-policy → upload-coworld → secret put, in that
