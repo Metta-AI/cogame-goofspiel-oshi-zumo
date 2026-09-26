@@ -1,7 +1,6 @@
-## Goofspiel / Oshi-Zumo player: prompt, scripted, or external Jev policy.
+## Goofspiel / Oshi-Zumo player: prompt or scripted policy.
 ##
 ## Prompt policies deliver PLAYER_PROMPT and wait for the final frame.
-## PLAYER_JEV=1 ranks legal bids from each seat observation in this process.
 ##
 ## PLAYER_SCRIPTED=match|hoard registers the seat as one of the built-in
 ## baselines instead: the server plays it deterministically, no LLM.
@@ -14,7 +13,6 @@
 
 import
   std/[json, options, os, strutils],
-  gozu/jev_policy,
   whisky
 
 const DefaultPrompt = """
@@ -32,22 +30,13 @@ when isMainModule:
   if prompt.len == 0:
     prompt = DefaultPrompt
   let scripted = getEnv("PLAYER_SCRIPTED").strip().toLowerAscii()
-  let jevRequested = getEnv("PLAYER_JEV") == "1"
-  let jev = jevRequested and (
-    getEnv("AWS_ENDPOINT_URL_BEDROCK_RUNTIME").strip().len > 0 or
-    getEnv("METTA_CAPTURE_URL").strip().len > 0 or
-    getEnv("TYPESAFE_API_KEY").strip().len > 0)
-
   proc promptFrame(): string =
-    if jev: $ %*{"type": "register", "control": "external"}
-    else: $ %*{"type": "prompt", "prompt": prompt,
-      "scripted": (if jevRequested: "match" else: scripted)}
+    $ %*{"type": "prompt", "prompt": prompt, "scripted": scripted}
 
   echo "gozu player: connecting to game"
   let socket = newWebSocket(url)
   socket.send(promptFrame())
-  echo "gozu player: registered ",
-    (if jev: "Jev external policy" else: "prompt/scripted policy")
+  echo "gozu player: registered prompt/scripted policy"
 
   ## whisky RAISES on a close frame or a truncated read (only a timeout
   ## returns none), and the game's quit(0) can outrun the flushed `final`
@@ -84,9 +73,6 @@ when isMainModule:
           ## Re-deliver the prompt after the welcome, in case the first send
           ## raced the server's slot registration.
           socket.send(promptFrame())
-        of "state":
-          if jev and payload.hasKey("observation"):
-            socket.send($chooseBid(payload["observation"]))
         of "final":
           echo "gozu player: final scores ", payload{"scores"}
           break
