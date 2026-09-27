@@ -27,8 +27,7 @@ still to come. The whole skill is budget pacing and opponent modelling.
 Prompt players send their strategy to the game. The server asks Claude for
 their bids in one parallel batch each round. External players receive a
 seat observation and return a sealed legal bid through the same player socket.
-The bundled Jev policy ranks those bids in its own player process. Two built-in
-**scripted baselines** play any seat that registers as scripted. They also
+Two built-in **scripted baselines** play any seat that registers as scripted. They also
 cover prompt seats when no game LLM credentials are available:
 
 - **`match`** — bid the card of the same rank as the prize, else the cheapest
@@ -68,8 +67,7 @@ feed line, its own scrub beat and a full-width banner.
 - `src/gozu/llm.nim` — Claude client (one parallel batch per round) + the
   `match` and `hoard` scripted baselines
 - `src/gozu/server.nim` — mummy HTTP/WS server (player, global, replay)
-- `src/gozu_player.nim` — prompt, scripted, and optional external Jev player
-- `src/gozu/jev_policy.nim` — player-side System One bid ranking
+- `src/gozu_player.nim` — prompt and scripted player
 - `client/chrome_common.js` — the cogame-babel chrome, copied region by region
   (see the header; `tools/ci/chrome_scope_check.mjs` enforces it)
 - `client/renderer.js` — the game block: the bid table, the dohyō track, the
@@ -112,8 +110,6 @@ episode is `tools/ci/docker_smoke.sh <image>`; it drives the certification
 fixture with one game container and four player containers, validates
 `results.json` against the manifest's own `results_schema`, and keeps the
 replay for the viewer smoke.
-`python3 tools/ci/jev_smoke.py <image>` checks external sealed bids against
-scripted players in both modes with a mock System One sidecar.
 
 Coworld packaging is done by `.github/workflows/coworld-release.yml`
 (build → certify → upload-policy → upload-coworld → secret put, in that
@@ -128,10 +124,6 @@ uv run coworld upload-policy <image> --name my-gozu \
 ```
 
 Or field a baseline: same image, `--env PLAYER_SCRIPTED=match` (or `hoard`).
-Set `PLAYER_JEV=1` for a separate external player using a seat-local System One
-route. That route can be the Coworld sidecar or a direct TypeSafe key. This
-option does not change the canonical prompt/scripted game fixture.
-
 External players send `{"type":"register","control":"external"}` after
 connecting. At each open round, the `state.observation` object gives the seat's
 legal bids, face-up prize or token position, public resources and bid history,
