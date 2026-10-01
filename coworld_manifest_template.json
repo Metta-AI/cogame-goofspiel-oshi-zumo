@@ -24,9 +24,7 @@
       "run": [
         "/bin/goofspiel-oshi-zumo"
       ],
-      "env": {
-        "ANTHROPIC_API_KEY_URI": "secret://coworld/goofspiel-oshi-zumo/anthropic_api_key"
-      },
+      "env": {},
       "source_url": "https://github.com/Metta-AI/cogame-goofspiel-oshi-zumo/tree/main"
     },
     "config_schema": {
