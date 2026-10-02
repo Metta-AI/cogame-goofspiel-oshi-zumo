@@ -132,3 +132,29 @@ and its own private notes. The player replies with
 The game accepts one legal bid for that round, reveals all bids together, and
 uses the `match` baseline if an external player does not reply before the
 round deadline.
+
+
+## Private training evidence
+
+Set `COGAME_SAVE_TRAJECTORY_URI` alongside `COWORLD_EPISODE_ID`,
+`COWORLD_GAME_VERSION`, and the immutable `COWORLD_SOURCE_REVISION` to record
+private native decision JSONL. The engine records exact model attempts after
+applying actions, including rejected replies and scripted fallbacks. Keep this
+artifact separate from public replay; local trajectory files use mode 0600.
+
+`tools/export_native_posttrain.py --replay replay.json --trajectory trajectory.jsonl
+--game-log game.log --episode-id EPISODE_ID` verifies decisions against this
+source revision's seeded engine, prompts, parser, and terminal scores. It emits
+a `coworld.native-verification.v1` report with file hashes. Use the pinned
+`nimby.lock` and Nim on PATH. The caller must independently join provider call
+IDs and review selected responses before using them as supervised labels.
+Missing inference identities or decoder settings cannot establish matched
+checkpoint evaluation. Unknown external actions and fallbacks are not labels.
+
+Run `python tools/test_native_trajectory.py GAME_BINARY OUTPUT_DIRECTORY
+SOURCE_COMMIT BITWORLD_CHECKOUT` with Python `websockets` installed. This bounded
+CPU fixture checks accepted replies, retries, fallbacks, private prompts, and
+independent provider archives through real HTTP/WebSocket game processes.
+Synthetic fixture responses are infrastructure checks, not model quality or
+approved training data. Publish and qualify a matching image before collecting
+hosted data from the new source.
