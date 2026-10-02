@@ -21,7 +21,8 @@
 ## scripted plays one deliberately, LLM or not.
 
 import
-  std/[json, math, os, strutils],
+  std/[json, math, options, os, strutils],
+  bitworld/decision_trajectory,
   bitworld/runtime,
   curly,
   sim
@@ -38,6 +39,7 @@ type
     skHoard = "hoard"
 
   Decision* = object
+    nativeAttempts*: seq[DecisionAttempt]
     bid*: int
     say*: string
     notes*: string      ## "" when the reply carried none
@@ -403,6 +405,7 @@ proc requestFor(client: LlmClient, system, user: string, slot: int):
     tuple[url: string, headers: HttpHeaders, body: string] =
   var body = %*{
     "max_tokens": client.maxOutputTokens,
+    "temperature": 0,
     "system": system,
     "messages": [{"role": "user", "content": user}]
   }
@@ -549,12 +552,14 @@ proc decideAll*(
     if kind != skNone or client.disabled:
       result[index] = scriptedAction(sim, seat,
         (if kind == skNone: skMatch else: kind))
+      result[index].fellBack = kind == skNone
     else:
       open.add(index)
   for attempt in 0 .. 1:
     if open.len == 0 or client.disabled:
       break
     var batch: RequestBatch
+    var evidenceByIndex = newSeq[DecisionAttempt](seats.len)
     for index in open:
       let seat = seats[index]
       var user = sim.userPrompt(seat, prompts[seat])
@@ -565,22 +570,37 @@ proc decideAll*(
           "requested JSON object; \"bid\" must be one of: " &
           bidList(sim.legalBids(seat)) & ".")
       let request = client.requestFor(systemPrompt(sim, seat), user, seat)
+      evidenceByIndex[index] = newDecisionAttempt("attempt-" & $attempt, client.model, aoModel)
+      captureInferenceRequest(evidenceByIndex[index], parseJson(request.body), systemPrompt(sim, seat), user)
       batch.post(request.url, request.headers, request.body, $index)
     let responses = client.curl.makeRequests(batch, client.timeoutSeconds)
     var stillOpen: seq[int]
     for position, index in open:
       let seat = seats[index]
+      var evidence = evidenceByIndex[index]
+      let response = responses[position].response
+      var raw = ""
       try:
-        let text = client.textOf(responses[position].response,
+        captureInferenceResponse(evidence, response.body, response.code,
+          response.headers["x-softmax-llm-call-id"], response.headers["x-coworld-checkpoint-sha256"],
+          response.headers["x-coworld-tokenizer-sha256"], response.headers["x-coworld-chat-template-sha256"],
+          client.timeoutSeconds, 2)
+        raw = client.textOf(responses[position].response,
           responses[position].error, batch[position].url)
-        let decision = parseDecision(extractJsonObject(text), sim.config.mode)
+        var decision = parseDecision(extractJsonObject(raw), sim.config.mode)
         ## Reject illegal bids here so the retry carries the hint. This is
         ## the SAME predicate applyBids validates with.
         if decision.bid notin sim.legalBids(seat):
           raise newException(GozuError,
             "bid " & $decision.bid & " is not legal for this seat")
+        evidence.response = %raw
+        evidence.accepted = true
+        decision.nativeAttempts = result[index].nativeAttempts & @[evidence]
         result[index] = decision
       except CatchableError as error:
+        evidence.response = %raw
+        evidence.rejectionReason = some(error.msg)
+        result[index].nativeAttempts.add(evidence)
         echo "gozu llm: seat ", seat, " attempt ", attempt, " failed: ",
           cleanText(error.msg, MaxErrorLen)
         stillOpen.add(index)
@@ -588,5 +608,7 @@ proc decideAll*(
   for index in open:
     let seat = seats[index]
     echo "gozu llm: seat ", seat, " falling back to scripted decision"
+    let retained = result[index].nativeAttempts
     result[index] = scriptedAction(sim, seat, skMatch)
+    result[index].nativeAttempts = retained
     result[index].fellBack = true
