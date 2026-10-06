@@ -27,7 +27,8 @@
 ## seat's bid is in.
 
 import
-  std/[json, locks, os, sets, strutils, tables, times],
+  std/[json, locks, options, os, sets, strutils, tables, times],
+  bitworld/decision_trajectory,
   bitworld/runtime,
   curly,
   mummy,
@@ -43,6 +44,7 @@ const
 
 type
   GameState = object
+    trajectory: Option[DecisionTrajectory]
     config: GameConfig
     sim: Sim
     prompts: seq[string]
@@ -243,6 +245,12 @@ proc finishEpisode(runtimeConfig: RuntimeConfig) =
       socket.send($final)
     state.broadcastLocked()
 
+  if state.trajectory.isSome:
+    state.trajectory.get().finish(
+      (if state.sim.reason == "deadline": esTruncated else: esCompleted),
+      results, results["scores"])
+    state.trajectory.get().writeEventsToUri(getEnv("COGAME_SAVE_TRAJECTORY_URI"))
+
   sleep(500)
   echo "gozu: writing results and replay"
   writeArtifact(
@@ -409,6 +417,7 @@ proc playEpisode(runtimeConfig: RuntimeConfig) {.gcsafe.} =
               " rejected; using scripted fallback"
             decision = scriptedAction(state.sim, seat, skMatch)
             decision.fellBack = true
+          decisions[index] = decision
           bids.add(decision.bid)
           says.add(decision.say)
           notes.add(decision.notes)
@@ -420,6 +429,21 @@ proc playEpisode(runtimeConfig: RuntimeConfig) {.gcsafe.} =
             (if decision.say.len > 0: " says \"" & decision.say & "\"" else: ""),
             " at ", (epochTime() - gameStart).int, "s"
         state.sim.applyBids(bids, says, notes, wasScripted, fellBack)
+        if state.trajectory.isSome:
+          for index, seat in seats:
+            let decision = decisions[index]
+            let origin =
+              if decision.fellBack: aoFallback
+              elif decision.nativeAttempts.len > 0: aoModel
+              elif external[seat]: aoUnknown
+              else: aoTeacher
+            state.trajectory.get().recordExecutedDecision($simCopy.round & "-" & $seat,
+              $seat, config.players[seat].name,
+              %*{"control": (if external[seat]: "external" else: "internal"), "operator_prompt": prompts[seat], "system": systemPrompt(simCopy, seat),
+                "user": userPrompt(simCopy, seat, prompts[seat])},
+              %*{"bid": decision.bid, "say": decision.say, "notes": decision.notes},
+              decision.nativeAttempts, origin, systemPrompt(simCopy, seat),
+              userPrompt(simCopy, seat, prompts[seat]), state.sim.done)
         echo "gozu: round ", state.sim.round + 1, " resolved, margin ",
           state.sim.margin,
           (if config.mode == mOshiZumo: " token " & $state.sim.position
@@ -604,6 +628,9 @@ proc websocketHandler(
                 not state.bidReceived[slot]:
               state.externalBids[slot] = Decision(
                 bid: bid, say: say, notes: notes)
+              if payload.hasKey("attempts"):
+                for attempt in payload["attempts"]:
+                  state.externalBids[slot].nativeAttempts.add(readAttemptEvidence(attempt))
               state.bidReceived[slot] = true
               echo "gozu: slot ", slot, " submitted sealed bid for round ",
                 round
@@ -687,6 +714,10 @@ proc runGameServer*(config: GameConfig, runtimeConfig: RuntimeConfig) =
     raise newException(GozuError, "tokens and players must align")
   state.config = config
   state.sim = initSim(config)
+  if getEnv("COGAME_SAVE_TRAJECTORY_URI").len > 0:
+    state.trajectory = some(newDecisionTrajectory(getEnv("COWORLD_EPISODE_ID"),
+      $config.seed, "gozu", getEnv("COWORLD_GAME_VERSION"),
+      getEnv("COWORLD_SOURCE_REVISION")))
   state.prompts = newSeq[string](config.players.len)
   state.scripted = newSeq[ScriptKind](config.players.len)
   state.registered = newSeq[bool](config.players.len)
