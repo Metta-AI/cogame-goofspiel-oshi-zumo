@@ -120,13 +120,12 @@ suite "22 the 0.1.42+ upload contract":
       check player["name"].getStr().len > 0
       check player["description"].getStr().len > 0
 
-  test "the secret namespace is game.name":
+  test "hosted inference needs no provider secret":
     ## The namespace must equal game.name exactly or upload-coworld 400s
     ## after a fully green certify (cooperative-hunting, 2026-08-25).
     let name = manifest["game"]["name"].getStr()
-    let uri = manifest["game"]["runnable"]["env"]["ANTHROPIC_API_KEY_URI"]
-      .getStr()
-    check uri == "secret://coworld/" & name & "/anthropic_api_key"
+    doAssert manifest{"game"}{"runnable"}{"env"}{"ANTHROPIC_API_KEY_URI"}.isNil,
+      "hosted LLM uses the platform sidecar without provider secrets"
 
 suite "23 the certification fixture seats every declared runnable":
   test "player ids resolve both ways":
