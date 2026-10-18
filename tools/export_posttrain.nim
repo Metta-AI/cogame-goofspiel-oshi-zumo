@@ -1,101 +1,91 @@
-## Export complete Goofspiel and Oshi-Zumo games as Metta post-training examples.
-## Usage: nim r --path:src tools/export_posttrain.nim OUTPUT GAMES [FIRST_SEED] [VARIANT]
-
+## Private source candidates. Independent review owns labels and splits.
 import std/[json, os, osproc, strutils]
-import gozu/[sim, llm]
+import bitworld/decision_trajectory
+import gozu/[sim, llm, prompts, evidence]
 
 const OperatorPrompt = "Choose legal bids to maximize your own score over the complete game."
 const Variants = ["goofspiel-4", "oshi-zumo-2"]
 
 when isMainModule:
   let args = commandLineParams()
-  if args.len notin 2 .. 4:
-    quit("usage: export_posttrain OUTPUT GAMES [FIRST_SEED] [VARIANT]", 1)
+  if args.len notin 2 .. 6 or args.len == 5:
+    quit("usage: export_posttrain OUTPUT GAMES [FIRST_SEED] [VARIANT] [PROMPT_VARIANT PROMPT_SEED]", 1)
   let output = args[0]
   let games = parseInt(args[1])
   let firstSeed = if args.len >= 3: parseInt(args[2]) else: 1
-  let variant = if args.len == 4: args[3] else: Variants[0]
-  if games < 10 or firstSeed < 1:
-    quit("at least ten games and a positive first seed are required", 1)
-  if variant notin Variants:
-    quit("unknown variant: " & variant, 1)
-  if dirExists(output) or fileExists(output):
-    quit("output already exists: " & output, 1)
+  let variant = if args.len >= 4: args[3] else: Variants[0]
+  let selection = promptSelection(if args.len == 6:
+    %*{"promptVariant": args[4], "promptSeed": parseInt(args[5])} else: newJObject())
+  if selection.selectedVariant in {pvHeldoutBriefing, pvHeldoutReference}:
+    raise newException(ValueError, "held-out wording is evaluation-only")
+  doAssert games >= 10 and firstSeed >= 1 and variant in Variants
+  let status = execCmdEx("git status --porcelain")
+  doAssert status.exitCode == 0 and status.output.strip().len == 0,
+    "Commit qualified source before generating pinned candidates"
+  doAssert not dirExists(output) and not fileExists(output)
   createDir(output)
-  let sourceRevision = execProcess("git rev-parse HEAD").strip()
+  setFilePermissions(output, {fpUserRead, fpUserWrite, fpUserExec})
+  let revision = execProcess("git rev-parse HEAD").strip()
   let manifest = parseFile("coworld_manifest_template.json")
   var variantConfig: JsonNode
   for entry in manifest["variants"]:
-    if entry["id"].getStr() == variant:
-      variantConfig = entry["game_config"]
+    if entry["id"].getStr() == variant: variantConfig = entry["game_config"]
   doAssert not variantConfig.isNil
-  var
-    trainRows: seq[string]
-    validationRows: seq[string]
-    runs = newJArray()
+  var runs = newJArray()
   for seed in firstSeed ..< firstSeed + games:
-    var config = defaultGameConfig()
     let runtimeConfig = copy(variantConfig)
     runtimeConfig["tokens"] = newJArray()
     for seat in 0 ..< variantConfig["players"].len:
       runtimeConfig["tokens"].add(%("t" & $seat))
     runtimeConfig["seed"] = %seed
+    var config = defaultGameConfig()
     config.update($runtimeConfig)
     config = sampleEpisode(config)
-    var sim = initSim(config)
-    var rows: seq[string]
-    while not sim.done:
-      sim.beginRound()
+    var game = initSim(config)
+    let episodeId = "gozu-" & variant & "-" & $seed & "-" & $selection.selectedVariant & "-" & $selection.seed
+    let trajectory = newDecisionTrajectory(episodeId, $seed, "gozu", "source-" & revision, revision)
+    var count = 0
+    while not game.done:
+      game.beginRound()
+      let before = game
       var bids: seq[int]
-      var says: seq[string]
-      var notes: seq[string]
+      var says, notes: seq[string]
       var scripted: seq[bool]
-      for seat in 0 ..< sim.seats:
-        let teacher = sim.scriptedAction(seat, skMatch)
-        let completion = %*{
-          "bid": teacher.bid, "say": teacher.say,
-          "notes": teacher.notes
-        }
-        let parsed = parseDecision(completion, sim.config.mode)
-        doAssert parsed == teacher
-        doAssert parsed.bid in sim.legalBids(seat)
+      for seat in 0 ..< game.seats:
+        let teacher = game.scriptedAction(seat, skMatch)
+        let action = %*{"bid": teacher.bid, "say": teacher.say, "notes": teacher.notes}
+        let parsed = parseDecision(action, game.config.mode)
+        doAssert parsed == teacher and parsed.bid in game.legalBids(seat)
         bids.add(parsed.bid)
         says.add(parsed.say)
         notes.add(parsed.notes)
         scripted.add(true)
-        rows.add($(%*{
-          "episode_id": "gozu-" & variant & "-" & $seed,
-          "seed": "gozu-" & variant & "-" & $seed,
-          "decision_id": sim.round * sim.seats + seat,
-          "prompt": [
-            {"role": "system", "content": systemPrompt(sim, seat)},
-            {"role": "user", "content": userPrompt(sim, seat,
-              OperatorPrompt)}
-          ],
-          "completion": [{"role": "assistant", "content": $completion}],
-          "game": "goofspiel-oshi-zumo",
-          "action_schema_revision": "gozu-bid-v1"
-        }))
-      sim.applyBids(bids, says, notes, scripted)
-    doAssert sim.reason == "complete" and rows.len > 0
-    let outcome = sim.resultsJson()
-    if seed mod 5 == 0:
-      validationRows.add(rows)
-    else:
-      trainRows.add(rows)
-    runs.add(%*{"seed": seed, "decisions": rows.len,
-      "scores": outcome["scores"], "ending": outcome["ending"]})
-  writeFile(output / "train.jsonl", trainRows.join("\n") & "\n")
-  writeFile(output / "validation.jsonl", validationRows.join("\n") & "\n")
-  writeFile(output / "manifest.json", pretty(%*{
-    "schema_version": 1,
-    "game": "goofspiel-oshi-zumo",
-    "variant": variant,
-    "source_revision": sourceRevision,
-    "teacher": "scripted-match",
-    "operator_prompt": OperatorPrompt,
-    "train_examples": trainRows.len,
-    "validation_examples": validationRows.len,
-    "runs": runs
-  }) & "\n")
-  echo "train=", trainRows.len, " validation=", validationRows.len
+      game.applyBids(bids, says, notes, scripted)
+      for seat in 0 ..< game.seats:
+        let system = systemPrompt(before, seat, selection)
+        let user = userPrompt(before, seat, OperatorPrompt)
+        trajectory.recordExecutedDecision($before.round & "-" & $seat, $seat, "scripted-match",
+          %*{"control": "internal", "operator_prompt": OperatorPrompt, "system": system,
+            "user": user, "prompt_template": selection.promptMetadata(system, user)},
+          %*{"bid": bids[seat], "say": says[seat], "notes": notes[seat]},
+          @[], aoTeacher, system, user, game.done)
+        inc count
+    let outcome = game.resultsJson()
+    doAssert game.reason == "complete" and count > 0
+    var outcomes = newJObject()
+    var policies: seq[string]
+    for seat in 0 ..< game.seats:
+      outcomes[$seat] = %*{"score": outcome["scores"][seat]}
+      policies.add("scripted-match")
+    trajectory.finish(esCompleted, outcome, outcomes)
+    trajectory.writeEvents(output / (episodeId & ".jsonl"))
+    writePrivate(output / (episodeId & ".replay.json"), $game.replayPayloadJson(policies, outcome))
+    runs.add(%*{"seed": seed, "seed_family": $seed, "episode_id": episodeId,
+      "trajectory": episodeId & ".jsonl", "replay": episodeId & ".replay.json",
+      "decisions": count, "scores": outcome["scores"], "ending": outcome["ending"]})
+  writePrivate(output / "manifest.json", pretty(%*{"schema_version": 1,
+    "game": "goofspiel-oshi-zumo", "variant": variant, "source_revision": revision,
+    "teacher": "scripted-match", "operator_prompt": OperatorPrompt,
+    "prompt_selection": selection.selectionMetadata(), "review_required": true,
+    "runs": runs}) & "\n")
+  echo "complete games=", games

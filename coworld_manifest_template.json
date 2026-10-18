@@ -36,6 +36,8 @@
         "players"
       ],
       "properties": {
+        "promptVariant": {"type": "string", "enum": ["canonical", "plain", "numbered", "questions", "reordered", "heldout-briefing", "heldout-reference", "mixed"], "default": "canonical"},
+        "promptSeed": {"type": "integer", "minimum": 0},
         "tokens": {
           "description": "One connection token per player slot, indexed by slot. Injected by the runner; never present in a variant's game_config.",
           "type": "array",

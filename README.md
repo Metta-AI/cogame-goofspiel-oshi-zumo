@@ -158,3 +158,33 @@ independent provider archives through real HTTP/WebSocket game processes.
 Synthetic fixture responses are infrastructure checks, not model quality or
 approved training data. Publish and qualify a matching image before collecting
 hosted data from the new source.
+
+## Prompt diversity and reviewed candidates
+
+`promptVariant` selects `canonical`, `plain`, `numbered`, `questions`, or
+`reordered`. The default preserves the original prompt. `mixed` requires an
+explicit nonnegative `promptSeed` and selects one training wording for the whole
+episode without consuming simulation randomness. `heldout-briefing` and
+`heldout-reference` are evaluation-only wordings. Rules and action contracts stay
+fixed after each introduction. Selection stays outside public replay and model
+observations; private evidence retains the bank, selection and message hashes.
+
+The bridge accepts an optional third argument `text` to preserve full bid, speech,
+and private-note actions. Its numeric mode and encodings remain unchanged.
+Reset requests accept `promptVariant`, `promptSeed`, and `split`; `train` rejects
+held-out wording. `python tools/test_prompt_games.py BRIDGE [ORIGINAL_BRIDGE]`
+checks complete episodes, matched wording, canonical parity, and sealed rounds.
+
+`tools/export_posttrain.nim OUTPUT GAMES FIRST_SEED VARIANT PROMPT_VARIANT PROMPT_SEED`
+emits owner-only candidate trajectories, corresponding seeded replays, and a source
+manifest from clean committed source. At least ten complete games are required.
+It no longer assigns training labels or splits. The native verifier checks both
+native and teacher trajectories against the source engine and exact prompt bank.
+Keep every wording and game-variant replica of each seed in the same split.
+Independent content-bound review must authorize any teacher labels.
+
+Freeze training choices before testing held-out wording. Compare base,
+canonical-trained, and mixed-trained checkpoints with matched seeds, seats,
+opponents, model identities, and inference budgets. Report invalid replies,
+fallbacks, incomplete games, and zero-sum scores. Local deterministic and native
+failure-path checks do not establish learning gains.

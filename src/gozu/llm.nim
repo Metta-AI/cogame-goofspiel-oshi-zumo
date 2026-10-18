@@ -25,6 +25,7 @@ import
   bitworld/decision_trajectory,
   bitworld/runtime,
   curly,
+  prompts,
   sim
 
 const
@@ -280,12 +281,11 @@ proc oshiHistoryText(sim: Sim, seat: int): string =
     return "(no rounds resolved yet)"
   lines.join("\n")
 
-proc systemPrompt*(sim: Sim, seat: int): string =
+proc systemPrompt*(sim: Sim, seat: int, selection: PromptSelection): string =
   let me = sim.names[seat]
   case sim.config.mode
   of mGoofspiel:
-    "You are " & me & ", a cog playing GOOFSPIEL (the Game of Pure " &
-      "Strategy) against " & $(sim.seats - 1) & " other cogs." & """
+    selection.introduction(me, "GOOFSPIEL (the Game of Pure Strategy)", $(sim.seats - 1) & " other cogs") & """
 
 Rules:
 - Every cog holds an identical hand of the cards 1 to """ &
@@ -307,7 +307,7 @@ OUTPUT FORMAT: reply with ONLY one JSON object, nothing else - no
 analysis, no explanation, no markdown fences, no text before or after the
 object. Your reply must begin with the character { and end with }."""
   of mOshiZumo:
-    "You are " & me & ", a cog playing OSHI-ZUMO against one other cog." &
+    selection.introduction(me, "OSHI-ZUMO", "one other cog") &
       """
 
 Rules:
@@ -536,7 +536,8 @@ proc decideAll*(
   sim: Sim,
   seats: seq[int],
   prompts: seq[string],
-  scripted: seq[ScriptKind]
+  scripted: seq[ScriptKind],
+  selection: PromptSelection
 ): seq[Decision] =
   ## One decision per seat in `seats`, in order. Never raises: any failure
   ## falls back to the scripted baseline so the episode always advances.
@@ -569,9 +570,9 @@ proc decideAll*(
         user.add("\nYour previous reply was invalid. Respond with ONLY the " &
           "requested JSON object; \"bid\" must be one of: " &
           bidList(sim.legalBids(seat)) & ".")
-      let request = client.requestFor(systemPrompt(sim, seat), user, seat)
+      let request = client.requestFor(systemPrompt(sim, seat, selection), user, seat)
       evidenceByIndex[index] = newDecisionAttempt("attempt-" & $attempt, client.model, aoModel)
-      captureInferenceRequest(evidenceByIndex[index], parseJson(request.body), systemPrompt(sim, seat), user)
+      captureInferenceRequest(evidenceByIndex[index], parseJson(request.body), systemPrompt(sim, seat, selection), user)
       batch.post(request.url, request.headers, request.body, $index)
     let responses = client.curl.makeRequests(batch, client.timeoutSeconds)
     var stillOpen: seq[int]
