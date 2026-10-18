@@ -24,6 +24,9 @@ doAssert (summary["status"].getStr() == "completed") == fullSchedule
 var index = 0
 for eventIndex, event in events:
   if event.kind == evReveal:
+    var decisionState = frames[eventIndex]
+    if not decisionState.roundOpen():
+      decisionState.beginRound()
     for actingSeat in 0 ..< config.players.len:
       let seat = actingSeat
       let capture = captures[index]
@@ -33,10 +36,10 @@ for eventIndex, event in events:
       doAssert capture["seat"].getStr() == $seat
       let action = %*{"bid": event.bids[seat], "say": event.says[seat], "notes": event.notes[seat]}
       doAssert capture["executed_action"] == action
-      doAssert capture["observation"]["system"].getStr() == systemPrompt(frames[eventIndex], seat, selection)
+      doAssert capture["observation"]["system"].getStr() == systemPrompt(decisionState, seat, selection)
       let operatorPrompt = capture["observation"]["operator_prompt"].getStr()
-      let system = systemPrompt(frames[eventIndex], seat, selection)
-      let user = userPrompt(frames[eventIndex], seat, operatorPrompt)
+      let system = systemPrompt(decisionState, seat, selection)
+      let user = userPrompt(decisionState, seat, operatorPrompt)
       doAssert capture["observation"]["user"].getStr() == user
       doAssert capture["observation"]["prompt_template"] == selection.promptMetadata(system, user)
       for attempt in capture["attempts"]:
