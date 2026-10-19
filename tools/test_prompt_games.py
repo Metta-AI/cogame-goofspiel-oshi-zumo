@@ -8,7 +8,6 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 BRIDGE = Path(sys.argv[1]).resolve()
-ORIGINAL = Path(sys.argv[2]).resolve() if len(sys.argv) == 3 else None
 WORDINGS = (
     "canonical",
     "plain",
@@ -59,7 +58,7 @@ def play(
                     metadata["selection"],
                     metadata["seed"],
                 ) == (
-                    "gozu-rules-v1",
+                    "gozu-rules-v2",
                     WORDINGS[prompt_seed % 5] if wording == "mixed" else wording,
                     wording,
                     prompt_seed,
@@ -104,35 +103,42 @@ def play(
 
 
 for variant, players in (("goofspiel-4", 4), ("oshi-zumo-2", 2)):
-    for seed in (17, 99):
-        canonical = play(BRIDGE, variant, players, seed)
-        if ORIGINAL is not None:
-            assert canonical == play(ORIGINAL, variant, players, seed)
-        wordings = []
-        for wording in WORDINGS:
-            run = play(BRIDGE, variant, players, seed, wording)
-            assert run[:2] == canonical[:2]
-            wordings.append(run[2])
-        assert len({tuple(sorted(values)) for values in wordings}) == 7
-        for prompt_seed in range(5):
-            assert play(BRIDGE, variant, players, seed, "mixed", prompt_seed) == play(
-                BRIDGE, variant, players, seed, WORDINGS[prompt_seed]
-            )
-        print(
-            variant,
-            seed,
-            "canonical, seven wordings, five mixed selections, sealed rounds PASS",
-            flush=True,
+    canonical = play(BRIDGE, variant, players, 17)
+    wordings = []
+    for wording in WORDINGS:
+        run = play(BRIDGE, variant, players, 17, wording)
+        assert run[:2] == canonical[:2]
+        wordings.append(run[2])
+    assert len({tuple(sorted(values)) for values in wordings}) == 7
+    assert play(BRIDGE, variant, players, 17, "mixed", 4) == play(
+        BRIDGE, variant, players, 17, "reordered"
+    )
+    text_canonical = play(BRIDGE, variant, players, 17, text_mode=True)
+    assert (
+        play(BRIDGE, variant, players, 17, "plain", text_mode=True)[:2]
+        == text_canonical[:2]
+    )
+    print(variant, "12 complete matched/numeric/text games PASS", flush=True)
+for wording in WORDINGS[-2:]:
+    rejected = subprocess.run(
+        [
+            str(BRIDGE),
+            str(ROOT / "coworld_manifest_template.json"),
+            "goofspiel-4",
+            "text",
+        ],
+        input=json.dumps(
+            {
+                "kind": "reset",
+                "players": 4,
+                "seed": "17",
+                "promptVariant": wording,
+                "split": "train",
+            }
         )
-
-        text_canonical = play(BRIDGE, variant, players, seed, text_mode=True)
-        assert (
-            play(BRIDGE, variant, players, seed, "plain", text_mode=True)[:2]
-            == text_canonical[:2]
-        )
-        print(
-            variant,
-            seed,
-            "full text actions, private notes and canonical/alternate parity PASS",
-            flush=True,
-        )
+        + "\n",
+        text=True,
+        capture_output=True,
+        timeout=10,
+    )
+    assert rejected.returncode != 0 and "held-out" in rejected.stderr

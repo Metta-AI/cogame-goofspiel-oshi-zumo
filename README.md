@@ -159,32 +159,37 @@ Synthetic fixture responses are infrastructure checks, not model quality or
 approved training data. Publish and qualify a matching image before collecting
 hosted data from the new source.
 
-## Prompt diversity and reviewed candidates
+## Prompt diversity
 
-`promptVariant` selects `canonical`, `plain`, `numbered`, `questions`, or
-`reordered`. The default preserves the original prompt. `mixed` requires an
-explicit nonnegative `promptSeed` and selects one training wording for the whole
-episode without consuming simulation randomness. `heldout-briefing` and
-`heldout-reference` are evaluation-only wordings. Rules and action contracts stay
-fixed after each introduction. Selection stays outside public replay and model
-observations; private evidence retains the bank, selection and message hashes.
+Bank `gozu-rules-v2` varies complete Goofspiel and Oshi-Zumo rule explanations:
+sealed bidding, resource depletion, ties, scoring, winning, and visible history.
+`promptVariant` selects `canonical` (default), `plain`, `numbered`, `questions`,
+`reordered`, or `mixed`. Mixed requires an independent nonnegative `promptSeed`
+and fixes one training wording per episode. Canonical messages and action grammar
+remain unchanged. `heldout-briefing` and `heldout-reference` are evaluation-only.
+Training resets and teacher exports reject them.
 
-The bridge accepts an optional third argument `text` to preserve full bid, speech,
-and private-note actions. Its numeric mode and encodings remain unchanged.
-Reset requests accept `promptVariant`, `promptSeed`, and `split`; `train` rejects
-held-out wording. `python tools/test_prompt_games.py BRIDGE [ORIGINAL_BRIDGE]`
-checks complete episodes, matched wording, canonical parity, and sealed rounds.
+Native inference, the language bridge, and teacher exports share the renderer.
+The existing private native trajectory format and source verifier remain.
+The bridge accepts optional `text` mode for full bid, speech, and private-note
+actions; numeric observations and sealed-round behavior remain unchanged.
 
-`tools/export_posttrain.nim OUTPUT GAMES FIRST_SEED VARIANT PROMPT_VARIANT PROMPT_SEED`
-emits owner-only candidate trajectories, corresponding seeded replays, and a source
-manifest from clean committed source. At least ten complete games are required.
-It no longer assigns training labels or splits. The native verifier checks both
-native and teacher trajectories against the source engine and exact prompt bank.
-Keep every wording and game-variant replica of each seed in the same split.
-Independent content-bound review must authorize any teacher labels.
+`tools/export_posttrain.nim OUTPUT GAMES FIRST_SEED VARIANT PROMPT_VARIANT PROMPT_SEED [SPLIT]`
+retains `train.jsonl`, `validation.jsonl`, and `manifest.json`. Mixed exports
+cycle through five wordings and record each selection and rendered-message hashes.
+Goofspiel seeds shuffle prize decks and receive the original seed-based split.
+Oshi-Zumo seeds only rename seats, so replicas share one physical scenario family
+and default entirely to training. Optional `train` or `validation` assigns the
+whole export; use different physical configurations for independent Oshi validation.
+Keep every wording replica of a scenario in one split.
 
-Freeze training choices before testing held-out wording. Compare base,
-canonical-trained, and mixed-trained checkpoints with matched seeds, seats,
-opponents, model identities, and inference budgets. Report invalid replies,
-fallbacks, incomplete games, and zero-sum scores. Local deterministic and native
-failure-path checks do not establish learning gains.
+`tools/test_prompt_games.py BRIDGE` plays 24 complete numeric/text games with
+matched wording and sealed bids. `tools/test_export_posttrain.py EXPORTER` checks
+20 complete mixed exports. The existing native trajectory fixture checks actual
+selected HTTP prompts, retries, fallback, privacy, and replay verification using
+its bounded two-round, four-card setup and local inference stubs.
+
+Compare canonical and mixed training with matched scenarios, seats, opponents,
+model identities, and inference budgets. Report scores, invalid replies, fallback,
+requests, and completion on familiar and held-out wording. These local checks do
+not establish learned robustness or provider performance.

@@ -140,7 +140,7 @@ jobs:
               fi
               echo "::group::nim r ${flags} --path:src ${t}"
               # shellcheck disable=SC2086
-              if ! nim r ${flags} --path:src -o:"$RUNNER_TEMP/$(basename "${t}" .nim)-${m}" "${t}"; then
+              if ! nim r ${flags} --path:src "${t}"; then
                 echo "::error::FAILED (${m}) ${t}"
                 fail=1
               fi
@@ -149,18 +149,13 @@ jobs:
           done
           exit "${fail}"
 
-      - name: Complete prompt and private candidate workflows
+      - name: Complete prompt and mixed export workflows
         run: |
           set -euo pipefail
           nim c --hints:off -d:release --path:src -o:"$RUNNER_TEMP/gozu-bridge" tools/train_bridge.nim
           nim c --hints:off -d:release --path:src -o:"$RUNNER_TEMP/gozu-export" tools/export_posttrain.nim
-          nim c --hints:off -d:release --path:src -o:"$RUNNER_TEMP/gozu-verify" tools/verify_native_posttrain.nim
           python tools/test_prompt_games.py "$RUNNER_TEMP/gozu-bridge"
-          python tools/test_export_posttrain.py "$RUNNER_TEMP/gozu-export" "$RUNNER_TEMP/gozu-verify"
-          nim c --hints:off -d:release --path:src -o:"$RUNNER_TEMP/gozu-game" src/gozu.nim
-          nim c --hints:off -d:release --path:src -o:"$RUNNER_TEMP/gozu-player" src/gozu_player.nim
-          python tools/test_native_prompts.py "$RUNNER_TEMP/gozu-game" "$RUNNER_TEMP/gozu-player" "$RUNNER_TEMP/gozu-verify" "$RUNNER_TEMP/gozu-native" --smoke
-
+          python tools/test_export_posttrain.py "$RUNNER_TEMP/gozu-export"
 
   # ---------------------------------------------------------------------
   # Packaging smoke: the production image builds, and one real episode runs

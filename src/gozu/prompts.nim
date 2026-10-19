@@ -1,6 +1,7 @@
 ## Game-owned wording selection. Kept outside simulation/replay configuration.
 import std/[json, strutils]
 import crunchy
+import ./types
 
 type
   PromptVariant* = enum
@@ -17,7 +18,7 @@ type
     seed*: int
 
 const
-  PromptBankVersion* = "gozu-rules-v1"
+  PromptBankVersion* = "gozu-rules-v2"
 
 proc promptSelection*(node: JsonNode): PromptSelection =
   if node.kind != JObject:
@@ -58,3 +59,11 @@ proc introduction*(selection: PromptSelection, alias, game, rivals: string): str
   of pvHeldoutBriefing: "Take the role of the cog " & alias & " for " & game & " against " & rivals & "."
   of pvHeldoutReference: "Player identity: " & alias & " (a cog). Game: " & game & ". Opposition: " & rivals & "."
   of pvMixed: raise newException(ValueError, "mixed must resolve to a training wording")
+
+proc scenarioFamily*(config: GameConfig): string =
+  if config.mode == mGoofspiel:
+    return "gozu-prizes-" & $config.seed
+  # Oshi seeds rename seats but do not change the board or starting resources.
+  let physical = %*{"size": config.size, "coins": config.coins,
+    "minBid": config.minBid, "maxRounds": config.maxRounds}
+  "gozu-oshi-" & sha256($physical).toHex.toLowerAscii()

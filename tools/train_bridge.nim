@@ -32,6 +32,7 @@ proc decision(game: Sim, id, seat: int, selection: PromptSelection, textMode: bo
     "kind": "decision", "game": "goofspiel-oshi-zumo", "decision_id": id,
     "seat": seat, "engine_seat": seat, "turn": game.round,
     "semantic_view": {
+      "scenario_family": scenarioFamily(game.config),
       "prompt_template": selection.promptMetadata(systemPrompt(game, seat, selection), userPrompt(game, seat, OperatorPrompt)),
       "mode": $game.config.mode, "seat": seat, "round": game.round,
       "max_rounds": game.config.maxRounds, "prize": game.prize(),
