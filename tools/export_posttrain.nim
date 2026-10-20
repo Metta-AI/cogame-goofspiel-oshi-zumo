@@ -80,7 +80,8 @@ when isMainModule:
         let system = systemPrompt(sim, seat, selection)
         let user = userPrompt(sim, seat, OperatorPrompt)
         rows.add($(%*{
-          "episode_id": "gozu-" & variant & "-" & $seed & "-" & $selection.selectedVariant,
+          "episode_id": "gozu-" & variant & "-" & $seed & "-" & $selection.variant & "-" &
+            $selection.selectedVariant & "-" & $selection.seed,
           "seed": scenarioFamily(config),
           "prompt_template": selection.promptMetadata(system, user),
           "decision_id": sim.round * sim.seats + seat,

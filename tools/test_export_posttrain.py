@@ -50,7 +50,10 @@ with tempfile.TemporaryDirectory() as directory:
                 }
         assert families["train"].isdisjoint(families["validation"])
         assert all(
-            counts[f"gozu-{variant}-{run['seed']}-{run['prompt_selection']['variant']}"]
+            counts[
+                f"gozu-{variant}-{run['seed']}-{run['prompt_selection']['selection']}"
+                f"-{run['prompt_selection']['variant']}-{run['prompt_selection']['seed']}"
+            ]
             == run["decisions"]
             > 0
             for run in manifest["runs"]
