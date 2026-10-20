@@ -119,7 +119,8 @@ for variant, players in (("goofspiel-4", 4), ("oshi-zumo-2", 2)):
         == text_canonical[:2]
     )
     print(variant, "12 complete matched/numeric/text games PASS", flush=True)
-for wording in WORDINGS[-2:]:
+for wording, split in ((wording, split) for wording in WORDINGS[-2:]
+                       for split in (None, "train", "typo")):
     rejected = subprocess.run(
         [
             str(BRIDGE),
@@ -133,7 +134,7 @@ for wording in WORDINGS[-2:]:
                 "players": 4,
                 "seed": "17",
                 "promptVariant": wording,
-                "split": "train",
+                **({"split": split} if split is not None else {}),
             }
         )
         + "\n",

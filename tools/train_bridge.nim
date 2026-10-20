@@ -116,8 +116,9 @@ when isMainModule:
     of "reset":
       doAssert request["players"].getInt() == variantConfig["players"].len
       selection = promptSelection(request)
-      if request.hasKey("split") and request["split"].getStr() == "train" and selection.selectedVariant in {pvHeldoutBriefing, pvHeldoutReference}:
-        raise newException(ValueError, "held-out wording is evaluation-only")
+      if selection.selectedVariant in {pvHeldoutBriefing, pvHeldoutReference} and
+          (not request.hasKey("split") or request["split"].getStr() notin ["evaluation", "validation", "test"]):
+        raise newException(ValueError, "held-out wording requires an explicit evaluation split")
       var config = defaultGameConfig()
       let runtimeConfig = copy(variantConfig)
       runtimeConfig["tokens"] = newJArray()

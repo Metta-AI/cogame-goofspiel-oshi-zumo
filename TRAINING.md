@@ -54,3 +54,6 @@ prize order and the other seats' sealed bids. A round resolves only after
 every seat has chosen. The `match` policy supplies opponents and teacher
 labels. Complete games return the native zero-sum scores. Hosted prompts
 remain available to the Metta post-training exporter.
+
+Held-out bridge wordings require an explicit `evaluation`, `validation`, or `test`
+split. Omitted, training, and unrecognized splits reject them.
