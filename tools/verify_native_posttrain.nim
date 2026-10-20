@@ -1,12 +1,14 @@
 ## Verify native captures against the source-owned seeded replay engine.
 import std/[json, os, strutils]
-import gozu/[sim, llm, server]
+import gozu/[sim, llm, server, prompts]
 
 let args = commandLineParams()
 if args.len != 3: quit("usage: verify_native REPLAY TRAJECTORY EPISODE_ID", 1)
 let replay = parseFile(args[0])
 var captures: seq[JsonNode]
 for line in readFile(args[1]).strip().splitLines(): captures.add(parseJson(line))
+let metadata = captures[0]["observation"]["prompt_template"]
+let selection = promptSelection(%*{"promptVariant": metadata["selection"], "promptSeed": metadata["seed"]})
 let summary = captures[^1]
 doAssert summary["event_type"].getStr() == "episode"
 doAssert summary["episode_id"].getStr() == args[2]
@@ -22,6 +24,9 @@ doAssert (summary["status"].getStr() == "completed") == fullSchedule
 var index = 0
 for eventIndex, event in events:
   if event.kind == evReveal:
+    var decisionState = frames[eventIndex]
+    if not decisionState.roundOpen():
+      decisionState.beginRound()
     for actingSeat in 0 ..< config.players.len:
       let seat = actingSeat
       let capture = captures[index]
@@ -31,11 +36,12 @@ for eventIndex, event in events:
       doAssert capture["seat"].getStr() == $seat
       let action = %*{"bid": event.bids[seat], "say": event.says[seat], "notes": event.notes[seat]}
       doAssert capture["executed_action"] == action
-      doAssert capture["observation"]["system"].getStr() == systemPrompt(frames[eventIndex], seat)
+      doAssert capture["observation"]["system"].getStr() == systemPrompt(decisionState, seat, selection)
       let operatorPrompt = capture["observation"]["operator_prompt"].getStr()
-      let system = systemPrompt(frames[eventIndex], seat)
-      let user = userPrompt(frames[eventIndex], seat, operatorPrompt)
+      let system = systemPrompt(decisionState, seat, selection)
+      let user = userPrompt(decisionState, seat, operatorPrompt)
       doAssert capture["observation"]["user"].getStr() == user
+      doAssert capture["observation"]["prompt_template"] == selection.promptMetadata(system, user)
       for attempt in capture["attempts"]:
         if attempt["origin"].getStr() == "model":
           doAssert attempt["prompt"][0]["content"].getStr() == system

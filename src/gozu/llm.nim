@@ -25,6 +25,7 @@ import
   bitworld/decision_trajectory,
   bitworld/runtime,
   curly,
+  prompts,
   sim
 
 const
@@ -280,15 +281,14 @@ proc oshiHistoryText(sim: Sim, seat: int): string =
     return "(no rounds resolved yet)"
   lines.join("\n")
 
-proc systemPrompt*(sim: Sim, seat: int): string =
+proc systemPrompt*(sim: Sim, seat: int, selection: PromptSelection): string =
   let me = sim.names[seat]
   case sim.config.mode
   of mGoofspiel:
-    "You are " & me & ", a cog playing GOOFSPIEL (the Game of Pure " &
-      "Strategy) against " & $(sim.seats - 1) & " other cogs." & """
-
-Rules:
-- Every cog holds an identical hand of the cards 1 to """ &
+    result = selection.introduction(me, "GOOFSPIEL (the Game of Pure Strategy)", $(sim.seats - 1) & " other cogs") & (if selection.selectedVariant == pvCanonical: "\nRules:\n" else: "\n\nRules:\n")
+    case selection.selectedVariant
+    of pvCanonical:
+      result.add("""- Every cog holds an identical hand of the cards 1 to """ &
       $sim.config.cards & """.
 - Each round one prize card is turned face up. Every cog secretly bids ONE
   card from its hand; the bids are revealed together.
@@ -301,17 +301,59 @@ Rules:
   public. The only unknowns are what the others bid THIS round, and the
   order of the prizes still to come.
 - Your score is your share of the prize pool, rescaled so the table sums to
-  zero: the equal share scores 0, taking everything scores +1.
-
-OUTPUT FORMAT: reply with ONLY one JSON object, nothing else - no
-analysis, no explanation, no markdown fences, no text before or after the
-object. Your reply must begin with the character { and end with }."""
+  zero: the equal share scores 0, taking everything scores +1.""")
+    of pvPlain:
+      result.add("Everyone starts with the same cards, 1 through " & $sim.config.cards & ". Each round reveals one prize, " &
+        "then everyone secretly selects one hand card; bids are revealed together. The highest bid " &
+        "wins the prize rank in points. Tied high bidders share it equally, including fractions. " &
+        "Every bid card is spent even on a loss, so hands empty together and you must pace your " &
+        "cards. All previous bids are public. Rivals’ current bids and future prize order remain " &
+        "unknown. Scores rescale prize shares to sum to zero: an equal share is 0 and taking the " &
+        "entire pool is +1.")
+    of pvNumbered:
+      result.add("1. Resource: identical hands containing cards 1–" & $sim.config.cards & ".\n2. Round: reveal a prize; each " &
+        "cog secretly bids one hand card; reveal bids together.\n3. Award: highest bid scores the " &
+        "prize rank. Tied highest bidders split it equally; fractions count.\n4. Cost: all bid " &
+        "cards are spent, win or lose. All hands empty together; pace this finite budget.\n5. " &
+        "Knowledge: every past bid is public; this round’s rival bids and future prize order are " &
+        "unknown.\n6. Score: prize share rescaled to a zero-sum table. Equal share = 0; whole pool " &
+        "= +1.")
+    of pvQuestions:
+      result.add("What do you hold? The same 1–" & $sim.config.cards & " hand as every cog. What happens each round? A prize " &
+        "is shown; everyone secretly bids one hand card and bids are revealed together. Who " &
+        "scores? Highest bidder gets the prize rank; ties share it equally, even fractionally. Is " &
+        "a losing bid returned? No, every card is spent and all hands empty together, so pace your " &
+        "budget. What is hidden? Only rivals’ bids this round and the future prize order; all past " &
+        "bids are public. How is score normalized? Prize shares sum to zero after rescaling: equal " &
+        "share 0, entire pool +1.")
+    of pvReordered:
+      result.add("Budget pacing matters because every bid card is spent, winning or losing, and all hands " &
+        "empty together. You and every rival start with cards 1–" & $sim.config.cards & ". A round shows a prize, " &
+        "collects one secret hand-card bid from each cog, and reveals bids together. The highest " &
+        "bid wins the prize rank; tied highs split it equally with fractional points allowed. Past " &
+        "bids are fully public. Unknowns are this round’s rival bids and future prize order. Your " &
+        "prize share is rescaled to zero-sum scores: equal share 0, taking everything +1.")
+    of pvHeldoutBriefing:
+      result.add("Manage a hand of cards 1–" & $sim.config.cards & ", identical to every rival’s. After seeing a round’s " &
+        "prize, commit one card secretly; all bids appear together. The high bid claims the prize " &
+        "rank in points, with equal fractional shares for tied highs. Commitments consume their " &
+        "cards regardless of success, and all hands finish together. Use the public record of " &
+        "every past bid; neither current rival bids nor the remaining prize order is known. Final " &
+        "scores rescale prize shares to sum to zero, assigning 0 to an equal share and +1 to the " &
+        "full pool.")
+    of pvHeldoutReference:
+      result.add("Starting resource: identical 1–" & $sim.config.cards & " hands. Round inputs: visible prize, one secret " &
+        "card bid per cog. Reveal: simultaneous. Award: prize rank to highest bid, equally split " &
+        "among tied highs; fractional points permitted. Resource cost: every bid card, regardless " &
+        "of win; hands empty together, making pacing essential. Public information: all past bids. " &
+        "Unknown: current rival bids and future prize order. Score scale: zero-sum prize shares, " &
+        "equal share 0, entire pool +1.")
+    of pvMixed: raise newException(ValueError, "mixed selection must resolve")
   of mOshiZumo:
-    "You are " & me & ", a cog playing OSHI-ZUMO against one other cog." &
-      """
-
-Rules:
-- A sumo token stands on a track of """ & $fieldCells(sim.config) &
+    result = selection.introduction(me, "OSHI-ZUMO", "one other cog") & (if selection.selectedVariant == pvCanonical: "\nRules:\n" else: "\n\nRules:\n")
+    case selection.selectedVariant
+    of pvCanonical:
+      result.add("""- A sumo token stands on a track of """ & $fieldCells(sim.config) &
       """ cells, numbered 0 to """ & $(fieldCells(sim.config) - 1) & """.
 - You each start with """ & $sim.config.coins & """ coins. Every round both
   cogs secretly bid coins; the bids are revealed together.
@@ -323,11 +365,54 @@ Rules:
   centre cell is a draw.
 - The minimum bid is """ & $sim.config.minBid & """ while you still have
   coins, so the episode is bounded and stalling costs money.
-- Nothing about the past is hidden: every bid either cog has made is public.
-
-OUTPUT FORMAT: reply with ONLY one JSON object, nothing else - no
-analysis, no explanation, no markdown fences, no text before or after the
-object. Your reply must begin with the character { and end with }."""
+- Nothing about the past is hidden: every bid either cog has made is public.""")
+    of pvPlain:
+      result.add("The track has " & $fieldCells(sim.config) & " cells numbered 0–" & $(fieldCells(sim.config) - 1) & ", and each player starts with " & $sim.config.coins & " coins. " &
+        "Choose bids secretly each round, then reveal them together. Both bids are spent " &
+        "regardless of result. A higher bid pushes the token one cell toward your opponent’s edge; " &
+        "equal bids leave it still while still costing both bids. Push it off the far edge to win " &
+        "immediately. If coins or the round cap run out first, the player whose half does not " &
+        "contain the token wins; center is a draw. While you have coins the minimum bid is " &
+        "" & $sim.config.minBid & ", so stalling costs money and play is bounded. All past bids are public.")
+    of pvNumbered:
+      result.add("1. Board: " & $fieldCells(sim.config) & " track cells, numbered 0–" & $(fieldCells(sim.config) - 1) & ".\n2. Budget: " & $sim.config.coins & " coins per player.\n3. " &
+        "Round: secret bids, revealed together; both bids are paid, win or lose.\n4. Movement: the " &
+        "higher bid pushes one cell toward the rival edge; equal bids cost both sides but do not " &
+        "move the token.\n5. Win: push off the far edge immediately. At coin exhaustion or round " &
+        "cap, win if the token is not in your half; center draws.\n6. Minimum: " & $sim.config.minBid & " while coins " &
+        "remain; stalling costs money and bounds play.\n7. Information: all earlier bids are public.")
+    of pvQuestions:
+      result.add("How large is the track? " & $fieldCells(sim.config) & " cells, 0–" & $(fieldCells(sim.config) - 1) & ". What is your budget? Each player starts " &
+        "with " & $sim.config.coins & " coins. How are bids made? Secretly, then revealed together. Who pays? Both " &
+        "players, even on ties or losses. What moves the token? A higher bid pushes it one cell " &
+        "toward the other edge; equal bids never move it. How do you win? Push off the far edge, " &
+        "or have the token outside your half when coins or the round cap end play; center is a " &
+        "draw. Can you stall freely? No: minimum bid is " & $sim.config.minBid & " while you have coins, so play is " &
+        "bounded and stalling costs. What is public? Every past bid.")
+    of pvReordered:
+      result.add("Win by pushing the token off the opponent’s far edge. If coins or the round limit end " &
+        "play first, the player whose half lacks the token wins; the center draws. The track has " &
+        "" & $fieldCells(sim.config) & " cells, 0–" & $(fieldCells(sim.config) - 1) & ", and each player begins with " & $sim.config.coins & " coins. Secret bids are " &
+        "revealed together. Both are always spent. The higher bid pushes one cell toward the " &
+        "opponent; equal bids spend both amounts without moving the token. Minimum bid is " & $sim.config.minBid & " " &
+        "while coins remain, bounding play and charging for stalling. Every previous bid is public.")
+    of pvHeldoutBriefing:
+      result.add("Use " & $sim.config.coins & " starting coins to push a token along a " & $fieldCells(sim.config) & "-cell track numbered 0–" & $(fieldCells(sim.config) - 1) & ". " &
+        "Each round, commit coins secretly and reveal both bids together. Both commitments are " &
+        "paid regardless of who wins. The higher commitment moves the token one cell toward the " &
+        "opposing edge; a tie pays both bids but causes no movement. Crossing the far edge wins " &
+        "outright. Otherwise, at coin exhaustion or the round cap, the player whose half is free " &
+        "of the token wins, with a draw at center. Bids have minimum " & $sim.config.minBid & " while coins remain, " &
+        "so stalling spends resources and play is bounded. Consult the public history of all bids.")
+    of pvHeldoutReference:
+      result.add("Track: " & $fieldCells(sim.config) & " cells, indices 0–" & $(fieldCells(sim.config) - 1) & ". Initial purse: " & $sim.config.coins & " per player. Bidding: " &
+        "secret, simultaneous reveal. Cost: both bids always paid. Higher bid: one-cell push " &
+        "toward opponent edge. Equal bids: both paid, no motion. Immediate win: token off far " &
+        "edge. Exhausted coins/round cap: token outside your half wins; center draws. Minimum bid " &
+        "with coins remaining: " & $sim.config.minBid & ", making stalling costly and play bounded. Past bids: " &
+        "public.")
+    of pvMixed: raise newException(ValueError, "mixed selection must resolve")
+  result.add("\n\n" & "OUTPUT FORMAT: reply with ONLY one JSON object, nothing else - no\nanalysis, no explanation, no markdown fences, no text before or after the\nobject. Your reply must begin with the character { and end with }.")
 
 proc operatorBlock(prompt: string): string =
   if prompt.len == 0:
@@ -536,7 +621,8 @@ proc decideAll*(
   sim: Sim,
   seats: seq[int],
   prompts: seq[string],
-  scripted: seq[ScriptKind]
+  scripted: seq[ScriptKind],
+  selection: PromptSelection
 ): seq[Decision] =
   ## One decision per seat in `seats`, in order. Never raises: any failure
   ## falls back to the scripted baseline so the episode always advances.
@@ -569,9 +655,9 @@ proc decideAll*(
         user.add("\nYour previous reply was invalid. Respond with ONLY the " &
           "requested JSON object; \"bid\" must be one of: " &
           bidList(sim.legalBids(seat)) & ".")
-      let request = client.requestFor(systemPrompt(sim, seat), user, seat)
+      let request = client.requestFor(systemPrompt(sim, seat, selection), user, seat)
       evidenceByIndex[index] = newDecisionAttempt("attempt-" & $attempt, client.model, aoModel)
-      captureInferenceRequest(evidenceByIndex[index], parseJson(request.body), systemPrompt(sim, seat), user)
+      captureInferenceRequest(evidenceByIndex[index], parseJson(request.body), systemPrompt(sim, seat, selection), user)
       batch.post(request.url, request.headers, request.body, $index)
     let responses = client.curl.makeRequests(batch, client.timeoutSeconds)
     var stillOpen: seq[int]

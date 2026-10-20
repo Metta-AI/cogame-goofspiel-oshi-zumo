@@ -158,3 +158,40 @@ independent provider archives through real HTTP/WebSocket game processes.
 Synthetic fixture responses are infrastructure checks, not model quality or
 approved training data. Publish and qualify a matching image before collecting
 hosted data from the new source.
+
+## Prompt diversity
+
+Bank `gozu-rules-v2` varies complete Goofspiel and Oshi-Zumo rule explanations:
+sealed bidding, resource depletion, ties, scoring, winning, and visible history.
+`promptVariant` selects `canonical` (default), `plain`, `numbered`, `questions`,
+`reordered`, or `mixed`. Mixed requires an independent nonnegative `promptSeed`
+and fixes one training wording per episode. Canonical messages and action grammar
+remain unchanged. `heldout-briefing` and `heldout-reference` are evaluation-only.
+Training resets and teacher exports reject them.
+
+Native inference, the language bridge, and teacher exports share the renderer.
+The existing private native trajectory format and source verifier remain.
+The bridge accepts optional `text` mode for full bid, speech, and private-note
+actions; numeric observations and sealed-round behavior remain unchanged.
+
+`tools/export_posttrain.nim OUTPUT GAMES FIRST_SEED VARIANT PROMPT_VARIANT PROMPT_SEED [SPLIT]`
+retains `train.jsonl`, `validation.jsonl`, and `manifest.json`. Mixed exports
+cycle through five wordings separately within each split and record each selection
+and rendered-message hashes. Episode IDs include requested selection, resolved wording, and prompt seed
+for matched collections.
+Goofspiel seeds shuffle prize decks and receive the original seed-based split.
+Oshi-Zumo seeds only rename seats, so replicas share one physical scenario family
+and default entirely to training. Optional `train` or `validation` assigns the
+whole export; use different physical configurations for independent Oshi validation.
+Keep every wording replica of a scenario in one split.
+
+`tools/test_prompt_games.py BRIDGE` plays 24 complete numeric/text games with
+matched wording and sealed bids. `tools/test_export_posttrain.py EXPORTER` checks
+20 complete mixed exports. The existing native trajectory fixture checks actual
+selected HTTP prompts, retries, fallback, privacy, and replay verification using
+its bounded two-round, four-card setup and local inference stubs.
+
+Compare canonical and mixed training with matched scenarios, seats, opponents,
+model identities, and inference budgets. Report scores, invalid replies, fallback,
+requests, and completion on familiar and held-out wording. These local checks do
+not establish learned robustness or provider performance.

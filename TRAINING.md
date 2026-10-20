@@ -19,21 +19,12 @@ and legal-bid rule. Parsed bids resolve the round together. Whole games stay
 in one split. The manifest records source revision, variant, scores, ending,
 and row counts. Existing output directories are never overwritten.
 
-Train an output with Metta post-training:
-
-```sh
-nix develop -c uv run --package metta-posttrain --extra train \
-  python -m metta_posttrain.train --dataset /tmp/gozu-goofspiel-4 \
-  --output /tmp/gozu-adapter --model Qwen/Qwen3-0.6B \
-  --max-steps 100 --max-length 4096
-```
-
-Ten complete games yielded 416 training and 104 validation examples for
-Goofspiel, and 144 training and 36 validation examples for Oshi-Zumo. All
-700 examples fit the Qwen2.5-0.5B-Instruct tokenizer in 4,096 tokens; the
-maximum was 1,182. One CPU optimizer step per variant with a local tiny model
-verifies the Metta post-training path. These examples distill the scripted
-teacher; they do not establish stronger league play.
+Language training is owned by the [Metta posttraining research package](https://github.com/Metta-AI/posttraining-research/tree/main/packages/metta-posttraining).
+Use its documented training and source-admission workflows from that checkout.
+These examples distill the scripted teacher; they do not establish stronger play.
+Oshi-Zumo seeds only rename seats and share one physical scenario family; the
+default exporter keeps that family entirely in training. See the
+[scenario partition guidance](README.md#prompt-diversity) before constructing validation data.
 
 # Numeric reinforcement learning
 
@@ -54,3 +45,6 @@ prize order and the other seats' sealed bids. A round resolves only after
 every seat has chosen. The `match` policy supplies opponents and teacher
 labels. Complete games return the native zero-sum scores. Hosted prompts
 remain available to the Metta post-training exporter.
+
+Held-out bridge wordings require an explicit `evaluation`, `validation`, or `test`
+split. Omitted, training, and unrecognized splits reject them.

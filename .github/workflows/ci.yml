@@ -149,6 +149,14 @@ jobs:
           done
           exit "${fail}"
 
+      - name: Complete prompt and mixed export workflows
+        run: |
+          set -euo pipefail
+          nim c --hints:off -d:release --path:src -o:"$RUNNER_TEMP/gozu-bridge" tools/train_bridge.nim
+          nim c --hints:off -d:release --path:src -o:"$RUNNER_TEMP/gozu-export" tools/export_posttrain.nim
+          python tools/test_prompt_games.py "$RUNNER_TEMP/gozu-bridge"
+          python tools/test_export_posttrain.py "$RUNNER_TEMP/gozu-export"
+
   # ---------------------------------------------------------------------
   # Packaging smoke: the production image builds, and one real episode runs
   # end to end in raw docker with the certification fixture's seat mix.

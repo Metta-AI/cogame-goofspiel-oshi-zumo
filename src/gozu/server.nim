@@ -34,6 +34,7 @@ import
   mummy,
   mummy/routers,
   llm,
+  prompts,
   sim
 
 const
@@ -44,6 +45,7 @@ const
 
 type
   GameState = object
+    selection: PromptSelection
     trajectory: Option[DecisionTrajectory]
     config: GameConfig
     sim: Sim
@@ -378,7 +380,7 @@ proc playEpisode(runtimeConfig: RuntimeConfig) {.gcsafe.} =
       ## The slow part (Claude, ONE parallel batch for the round) runs
       ## outside the lock on a snapshot; only this thread mutates the sim,
       ## so the snapshot cannot go stale.
-      let llmDecisions = client.decideAll(simCopy, llmSeats, prompts, scripted)
+      let llmDecisions = client.decideAll(simCopy, llmSeats, prompts, scripted, state.selection)
       var decisions = newSeq[Decision](seats.len)
       for index, seat in llmSeats:
         decisions[seat] = llmDecisions[index]
@@ -439,10 +441,10 @@ proc playEpisode(runtimeConfig: RuntimeConfig) {.gcsafe.} =
               else: aoTeacher
             state.trajectory.get().recordExecutedDecision($simCopy.round & "-" & $seat,
               $seat, config.players[seat].name,
-              %*{"control": (if external[seat]: "external" else: "internal"), "operator_prompt": prompts[seat], "system": systemPrompt(simCopy, seat),
+              %*{"prompt_template": state.selection.promptMetadata(systemPrompt(simCopy, seat, state.selection), userPrompt(simCopy, seat, prompts[seat])), "control": (if external[seat]: "external" else: "internal"), "operator_prompt": prompts[seat], "system": systemPrompt(simCopy, seat, state.selection),
                 "user": userPrompt(simCopy, seat, prompts[seat])},
               %*{"bid": decision.bid, "say": decision.say, "notes": decision.notes},
-              decision.nativeAttempts, origin, systemPrompt(simCopy, seat),
+              decision.nativeAttempts, origin, systemPrompt(simCopy, seat, state.selection),
               userPrompt(simCopy, seat, prompts[seat]), state.sim.done)
         echo "gozu: round ", state.sim.round + 1, " resolved, margin ",
           state.sim.margin,
@@ -712,6 +714,7 @@ proc runReplayServer*(runtimeConfig: RuntimeConfig) =
 proc runGameServer*(config: GameConfig, runtimeConfig: RuntimeConfig) =
   if config.tokens.len != config.players.len:
     raise newException(GozuError, "tokens and players must align")
+  state.selection = promptSelection(parseJson(runtimeConfig.config))
   state.config = config
   state.sim = initSim(config)
   if getEnv("COGAME_SAVE_TRAJECTORY_URI").len > 0:
