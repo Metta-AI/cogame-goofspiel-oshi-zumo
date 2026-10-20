@@ -39,9 +39,8 @@ when isMainModule:
     trainRows: seq[string]
     validationRows: seq[string]
     runs = newJArray()
+    wordingCounts: array[2, int]
   for seed in firstSeed ..< firstSeed + games:
-    var selection = configured
-    if selection.variant == pvMixed: selection.seed += seed - firstSeed
     var config = defaultGameConfig()
     let runtimeConfig = copy(variantConfig)
     runtimeConfig["tokens"] = newJArray()
@@ -50,6 +49,13 @@ when isMainModule:
     runtimeConfig["seed"] = %seed
     config.update($runtimeConfig)
     config = sampleEpisode(config)
+    let validation = split == "validation" or
+      (split == "auto" and config.mode == mGoofspiel and seed mod 5 == 0)
+    let partition = ord(validation)
+    var selection = configured
+    if selection.variant == pvMixed:
+      selection.seed += wordingCounts[partition]
+    inc wordingCounts[partition]
     var sim = initSim(config)
     var rows: seq[string]
     while not sim.done:
@@ -74,7 +80,7 @@ when isMainModule:
         let system = systemPrompt(sim, seat, selection)
         let user = userPrompt(sim, seat, OperatorPrompt)
         rows.add($(%*{
-          "episode_id": "gozu-" & variant & "-" & $seed,
+          "episode_id": "gozu-" & variant & "-" & $seed & "-" & $selection.selectedVariant,
           "seed": scenarioFamily(config),
           "prompt_template": selection.promptMetadata(system, user),
           "decision_id": sim.round * sim.seats + seat,
@@ -89,7 +95,7 @@ when isMainModule:
       sim.applyBids(bids, says, notes, scripted)
     doAssert sim.reason == "complete" and rows.len > 0
     let outcome = sim.resultsJson()
-    if split == "validation" or (split == "auto" and config.mode == mGoofspiel and seed mod 5 == 0):
+    if validation:
       validationRows.add(rows)
     else:
       trainRows.add(rows)

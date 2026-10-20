@@ -18,13 +18,6 @@ with tempfile.TemporaryDirectory() as directory:
             check=True,
         )
         manifest = json.loads((output / "manifest.json").read_text())
-        assert [run["prompt_selection"]["variant"] for run in manifest["runs"]] == [
-            "canonical",
-            "plain",
-            "numbered",
-            "questions",
-            "reordered",
-        ] * 2
         families, counts = {}, {}
         for split in ("train", "validation"):
             rows = [
@@ -33,6 +26,14 @@ with tempfile.TemporaryDirectory() as directory:
             ]
             assert len(rows) == manifest[split + "_examples"]
             families[split] = {row["seed"] for row in rows}
+            if split == "train":
+                assert {row["prompt_template"]["variant"] for row in rows} == {
+                    "canonical",
+                    "plain",
+                    "numbered",
+                    "questions",
+                    "reordered",
+                }
             for row in rows:
                 counts[row["episode_id"]] = counts.get(row["episode_id"], 0) + 1
                 assert row["prompt_template"]["bank"] == "gozu-rules-v2"
@@ -49,7 +50,9 @@ with tempfile.TemporaryDirectory() as directory:
                 }
         assert families["train"].isdisjoint(families["validation"])
         assert all(
-            counts[f"gozu-{variant}-{run['seed']}"] == run["decisions"] > 0
+            counts[f"gozu-{variant}-{run['seed']}-{run['prompt_selection']['variant']}"]
+            == run["decisions"]
+            > 0
             for run in manifest["runs"]
         )
         if variant == "oshi-zumo-2":

@@ -176,7 +176,8 @@ actions; numeric observations and sealed-round behavior remain unchanged.
 
 `tools/export_posttrain.nim OUTPUT GAMES FIRST_SEED VARIANT PROMPT_VARIANT PROMPT_SEED [SPLIT]`
 retains `train.jsonl`, `validation.jsonl`, and `manifest.json`. Mixed exports
-cycle through five wordings and record each selection and rendered-message hashes.
+cycle through five wordings separately within each split and record each selection
+and rendered-message hashes. Episode IDs include wording for matched collections.
 Goofspiel seeds shuffle prize decks and receive the original seed-based split.
 Oshi-Zumo seeds only rename seats, so replicas share one physical scenario family
 and default entirely to training. Optional `train` or `validation` assigns the
