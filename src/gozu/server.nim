@@ -719,7 +719,7 @@ proc runGameServer*(config: GameConfig, runtimeConfig: RuntimeConfig) =
   state.sim = initSim(config)
   if getEnv("COGAME_SAVE_TRAJECTORY_URI").len > 0:
     state.trajectory = some(newDecisionTrajectory(getEnv("COWORLD_EPISODE_ID"),
-      $config.seed, "gozu", getEnv("COWORLD_GAME_VERSION"),
+      scenarioFamily(config), "goofspiel-oshi-zumo", getEnv("COWORLD_GAME_VERSION"),
       getEnv("COWORLD_SOURCE_REVISION")))
   state.prompts = newSeq[string](config.players.len)
   state.scripted = newSeq[ScriptKind](config.players.len)

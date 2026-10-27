@@ -14,7 +14,12 @@ doAssert summary["event_type"].getStr() == "episode"
 doAssert summary["episode_id"].getStr() == args[2]
 doAssert summary["outcome"] == replay["results"]
 let config = configFromReplay(replay)
-doAssert summary["seed_family"].getStr() == $config.seed
+let traceGame = summary["game"].getStr()
+doAssert traceGame in ["gozu", "goofspiel-oshi-zumo"]
+# Archived traces retain their original identity. New traces use catalog identity
+# and the existing source-owned family contract, including Oshi seed aliases.
+doAssert summary["seed_family"].getStr() ==
+  (if traceGame == "gozu": $config.seed else: scenarioFamily(config))
 var events: seq[GameEvent]
 for event in replay["events"]: events.add(eventFromJson(event))
 let frames = replayMatch(config, events)
@@ -31,6 +36,7 @@ for eventIndex, event in events:
       let seat = actingSeat
       let capture = captures[index]
       doAssert capture["event_type"].getStr() == "decision"
+      doAssert capture["game"].getStr() == traceGame
       doAssert capture["decision_index"].getInt() == index
       doAssert capture["decision_id"].getStr() == $event.round & "-" & $seat
       doAssert capture["seat"].getStr() == $seat
