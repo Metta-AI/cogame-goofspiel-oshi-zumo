@@ -48,3 +48,31 @@ remain available to the Metta post-training exporter.
 
 Held-out bridge wordings require an explicit `evaluation`, `validation`, or `test`
 split. Omitted, training, and unrecognized splits reject them.
+
+## Native trace identity and families
+
+New hosted private traces use the catalog game name `goofspiel-oshi-zumo`,
+matching registered image and provider-receipt identity. They reuse the same
+`scenarioFamily(config)` contract as the language bridge and exporter: seeded
+Goofspiel prize families and one physical Oshi family per board/resources/rules
+configuration. Renaming Oshi seats with another seed cannot create an independent
+validation family. Rules, bids, prompts, native transport and outcomes are unchanged.
+
+The native replay verifier still reads archived `gozu` traces with their original
+seed-only family format. It does not rewrite those records or qualify their old
+source/receipt mismatches for training. Current traces must keep the canonical
+name and family consistent across decisions and terminal evidence.
+
+Compile the ordinary game, reference player and existing native verifier, then run
+this complete-game system check. It exercises both unshortened manifest variants
+at two seeds, retains every log/replay/trajectory, verifies replay joins and legacy
+reading, and checks that Oshi seed aliases stay together. Only wall pacing is
+reduced in the local fixtures; deterministic scripted responses are never real-model
+training data.
+
+```sh
+nim c -d:release --path:src -o:/path/gozu src/gozu.nim
+nim c -d:release --path:src -o:/path/gozu-player src/gozu_player.nim
+nim c -d:release --path:src -o:/path/gozu-verify tools/verify_native_posttrain.nim
+python3 tools/test_native_trace_identity.py /path/gozu /path/gozu-player /path/gozu-verify /new/private/output
+```
