@@ -306,6 +306,8 @@ jobs:
             --timeout-seconds 900 \
             --wait-hosted-smoke \
             --hosted-smoke-timeout-seconds 1800 \
+            --wait-certification \
+            --certification-timeout-seconds 1800 \
             2>&1 | tee "$RR/upload.log"
           rc="${PIPESTATUS[0]}"
           set -e
