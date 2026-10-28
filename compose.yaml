@@ -4,4 +4,4 @@ services:
     platform: linux/amd64
     build:
       context: .
-      network: host
+      network: default
